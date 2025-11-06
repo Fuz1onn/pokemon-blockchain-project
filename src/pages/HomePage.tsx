@@ -1,4 +1,19 @@
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import React, { useState } from "react";
+import { Link } from "react-router-dom";
+
+import { Pencil } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+
+import arenaBg from "../assets/background/arena.png";
 
 interface Pokemon {
   id: number;
@@ -26,7 +41,8 @@ const HomePage: React.FC<HomePageProps> = ({
 }) => {
   // Profile name state
   const [profileName, setProfileName] = useState<string | null>(null);
-  const [tempName, setTempName] = useState<string>("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [tempName, setTempName] = useState("");
 
   const shortenAddress = (address: string) =>
     `${address.slice(0, 6)}...${address.slice(-4)}`;
@@ -37,33 +53,28 @@ const HomePage: React.FC<HomePageProps> = ({
       <div className="flex justify-between items-center mb-6">
         {/* Left: Wallet info + Profile Name */}
         <div>
-          <h2 className="text-2xl font-bold">
-            Trainer: {profileName || shortenAddress(account)}
-          </h2>
+          <div className="flex items-center space-x-2">
+            <h2 className="text-2xl font-bold">
+              Trainer: {profileName || shortenAddress(account)}
+            </h2>
+            <button
+              onClick={() => setIsEditing(true)}
+              className="text-gray-400 hover:text-yellow-400 transition"
+            >
+              <Pencil size={18} />
+            </button>
+          </div>
+          <p className="text-sm text-gray-400 mt-1">Coins: {coinBalance}</p>
+        </div>
 
-          {/* Edit profile name input */}
-          {!profileName && (
-            <div className="flex items-center mt-1 space-x-2">
-              <input
-                type="text"
-                placeholder="Enter your trainer name"
-                className="px-3 py-1 rounded-lg text-black text-sm"
-                value={tempName}
-                onChange={(e) => setTempName(e.target.value)}
-              />
-              <button
-                onClick={() => {
-                  if (tempName.trim()) {
-                    setProfileName(tempName.trim());
-                    setTempName("");
-                  }
-                }}
-                className="px-3 py-1 bg-green-600 text-white rounded-lg hover:bg-green-700 text-sm"
-              >
-                Save
-              </button>
-            </div>
-          )}
+        {/* Middle: Navigation */}
+        <div className="flex space-x-6 text-lg font-semibold">
+          <Link to="/marketplace" className="hover:text-yellow-400 transition">
+            Marketplace
+          </Link>
+          <Link to="/mypokemon" className="hover:text-yellow-400 transition">
+            Pokémon
+          </Link>
         </div>
 
         {/* Right: Notifications + Seasonal Banner + Logout */}
@@ -83,7 +94,6 @@ const HomePage: React.FC<HomePageProps> = ({
           {/* Seasonal / Theme Icon */}
           <div className="w-10 h-10 bg-yellow-400 rounded-full flex items-center justify-center shadow-lg animate-bounce">
             <span className="text-gray-900 font-bold text-lg">⚡</span>
-            {/* Replace ⚡ with seasonal icon or small Pokéball */}
           </div>
 
           {/* Logout Button */}
@@ -94,38 +104,94 @@ const HomePage: React.FC<HomePageProps> = ({
             Logout
           </button>
         </div>
+
+        {/* Edit Name Modal */}
+        <Dialog open={isEditing} onOpenChange={setIsEditing}>
+          <DialogContent className="bg-gray-900 border border-gray-700 text-white">
+            <DialogHeader>
+              <DialogTitle>Edit Trainer Name</DialogTitle>
+            </DialogHeader>
+            <div className="py-2">
+              <Input
+                value={tempName}
+                onChange={(e) => setTempName(e.target.value)}
+                placeholder="Enter new trainer name"
+                className="text-white"
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (tempName.trim()) {
+                    setProfileName(tempName.trim());
+                    setTempName("");
+                    setIsEditing(false);
+                  }
+                }}
+                className="text-neutral-950 hover:opacity-80 transition"
+              >
+                Save changes
+              </Button>
+              <Button
+                onClick={() => setIsEditing(false)}
+                className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
+              >
+                Cancel
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
 
       {/* Welcome Banner */}
-      <div className="text-center mb-6 animate-pulse">
-        <h2 className="text-3xl font-bold text-yellow-400 mb-2">
-          Welcome, Trainer!
-        </h2>
-        <p className="text-gray-300">
-          You have {ownedPokemons.length} Pokémon ready to battle.
-        </p>
-      </div>
+      <div
+        className="relative text-center mb-6 p-8 rounded-2xl overflow-hidden shadow-lg"
+        style={{
+          backgroundImage: `url(${arenaBg})`,
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+        }}
+      >
+        {/* Overlay for readability */}
+        <div className="absolute inset-0 bg-black/60" />
 
-      {/* Start Match */}
-      <div className="text-center mb-8">
-        <button
-          onClick={onStartMatch}
-          disabled={!canStartMatch}
-          className={`px-6 py-3 rounded-lg text-xl font-bold transition ${
-            canStartMatch
-              ? "bg-green-600 hover:bg-green-700"
-              : "bg-gray-600 cursor-not-allowed"
-          }`}
-        >
-          {canStartMatch
-            ? "Start Match"
-            : "You need at least 3 Pokémon to start"}
-        </button>
+        {/* Banner content */}
+        <div className="relative z-10 space-y-4">
+          <h2 className="text-4xl font-bold text-yellow-400 mt-8 animate-pulse drop-shadow-lg">
+            Welcome, Trainer!
+          </h2>
+          <p className="text-gray-200">
+            You have {ownedPokemons.length} Pokémon ready to battle.
+          </p>
+
+          <button
+            onClick={onStartMatch}
+            disabled={!canStartMatch}
+            className={`mb-8 mt-4 px-6 py-3 rounded-lg text-xl font-bold transition duration-200 ${
+              canStartMatch
+                ? "bg-green-600 hover:bg-green-700 text-white"
+                : "bg-gray-600 text-gray-300 cursor-not-allowed"
+            }`}
+          >
+            {canStartMatch
+              ? "Start Match"
+              : "You need at least 3 Pokémon to start"}
+          </button>
+        </div>
       </div>
 
       {/* Owned Pokémons */}
       <div className="mb-8">
-        <h3 className="text-xl font-bold mb-4">Your Pokémons</h3>
+        <div className="flex items-center space-x-3 mb-4">
+          <h3 className="text-xl font-bold">Your Pokémons</h3>
+          <Link
+            to="/mypokemon"
+            className="flex items-center text-yellow-400 hover:text-yellow-300 text-md font-semibold transition"
+          >
+            See more <ChevronRight size={16} className="ml-1" />
+          </Link>
+        </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
           {ownedPokemons.map((pokemon) => (
             <div
