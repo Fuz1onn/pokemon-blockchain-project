@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
+import MainLayout from "./layouts/MainLayout";
 import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import MyPokemonPage from "./pages/MyPokemonPage";
@@ -43,14 +44,20 @@ const App: React.FC = () => {
         path="/home"
         element={
           account ? (
-            <HomePage
+            <MainLayout
               account={account}
-              ownedPokemons={ownedPokemons}
               coinBalance={coinBalance}
-              onStartMatch={handleStartMatch}
               onLogout={handleLogout}
-              canStartMatch={canStartMatch}
-            />
+            >
+              <HomePage
+                account={account}
+                ownedPokemons={ownedPokemons}
+                coinBalance={coinBalance}
+                onStartMatch={handleStartMatch}
+                onLogout={handleLogout}
+                canStartMatch={canStartMatch}
+              />
+            </MainLayout>
           ) : (
             <Navigate to="/" replace />
           )
@@ -60,7 +67,13 @@ const App: React.FC = () => {
         path="/mypokemon"
         element={
           account ? (
-            <MyPokemonPage ownedPokemons={ownedPokemons} />
+            <MainLayout
+              account={account}
+              coinBalance={coinBalance}
+              onLogout={handleLogout}
+            >
+              <MyPokemonPage ownedPokemons={ownedPokemons} />
+            </MainLayout>
           ) : (
             <Navigate to="/" replace />
           )
@@ -68,7 +81,19 @@ const App: React.FC = () => {
       />
       <Route
         path="/marketplace"
-        element={account ? <MarketplacePage /> : <Navigate to="/" replace />}
+        element={
+          account ? (
+            <MainLayout
+              account={account}
+              coinBalance={coinBalance}
+              onLogout={handleLogout}
+            >
+              <MarketplacePage />
+            </MainLayout>
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
       />
     </Routes>
   );
