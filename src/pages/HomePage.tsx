@@ -13,7 +13,7 @@ interface Pokemon {
 interface HomePageProps {
   account: string;
   ownedPokemons: Pokemon[];
-  coinBalance: number;
+  leelasBalance: number;
   onStartMatch: () => void;
   onLogout: () => void;
   canStartMatch: boolean;

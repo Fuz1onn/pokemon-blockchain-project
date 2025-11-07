@@ -19,7 +19,7 @@ const initialPokemons = [
 
 const App: React.FC = () => {
   const [account, setAccount] = useState<string | null>(null);
-  const [coinBalance, setCoinBalance] = useState<number>(100);
+  const [leelasBalance, setLeelasBalance] = useState<number>(100);
   const [ownedPokemons, setOwnedPokemons] = useState(initialPokemons);
 
   const handleLogout = () => setAccount(null);
@@ -46,13 +46,13 @@ const App: React.FC = () => {
           account ? (
             <MainLayout
               account={account}
-              coinBalance={coinBalance}
+              leelasBalance={leelasBalance}
               onLogout={handleLogout}
             >
               <HomePage
                 account={account}
                 ownedPokemons={ownedPokemons}
-                coinBalance={coinBalance}
+                leelasBalance={leelasBalance}
                 onStartMatch={handleStartMatch}
                 onLogout={handleLogout}
                 canStartMatch={canStartMatch}
@@ -69,7 +69,7 @@ const App: React.FC = () => {
           account ? (
             <MainLayout
               account={account}
-              coinBalance={coinBalance}
+              leelasBalance={leelasBalance}
               onLogout={handleLogout}
             >
               <MyPokemonPage ownedPokemons={ownedPokemons} />
@@ -85,7 +85,7 @@ const App: React.FC = () => {
           account ? (
             <MainLayout
               account={account}
-              coinBalance={coinBalance}
+              leelasBalance={leelasBalance}
               onLogout={handleLogout}
             >
               <MarketplacePage />

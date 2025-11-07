@@ -118,3 +118,73 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* 🌟 Legendary Glow */
+@keyframes pulse-legendary {
+  0%,
+  100% {
+    box-shadow: 0 0 15px 3px rgba(250, 204, 21, 0.6);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px 6px rgba(250, 204, 21, 0.6);
+    transform: scale(1.02);
+  }
+}
+
+.animate-legendary {
+  animation: pulse-legendary 3s ease-in-out infinite;
+}
+
+/* 💜 Epic Gradient Glow
+@keyframes pulse-epic {
+  0%,
+  100% {
+    box-shadow: 0 0 15px 3px rgba(168, 85, 247, 0.6),
+      0 0 30px 5px rgba(236, 72, 153, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 30px 8px rgba(236, 72, 153, 0.6),
+      0 0 50px 12px rgba(168, 85, 247, 0.7);
+    transform: scale(1.02);
+  }
+}
+
+.animate-epic {
+  animation: pulse-epic 3s ease-in-out infinite;
+} */
+
+/* Rare Glow */
+/* @keyframes pulse-rare {
+  0%,
+  100% {
+    box-shadow: 0 0 12px 3px rgba(59, 130, 246, 0.6);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 18px 6px rgba(59, 130, 246, 0.8);
+    transform: scale(1.02);
+  }
+}
+
+.animate-rare {
+  animation: pulse-rare 3s ease-in-out infinite;
+} */
+
+/* Common Glow */
+/* @keyframes pulse-common {
+  0%,
+  100% {
+    box-shadow: 0 0 10px 2px rgba(74, 222, 128, 0.5);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 15px 4px rgba(74, 222, 128, 0.7);
+    transform: scale(1.02);
+  }
+}
+
+.animate-common {
+  animation: pulse-common 3s ease-in-out infinite;
+} */

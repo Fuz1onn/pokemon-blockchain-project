@@ -13,14 +13,14 @@ import { Input } from "@/components/ui/input";
 
 interface MainLayoutProps {
   account: string;
-  coinBalance: number;
+  leelasBalance: number;
   onLogout: () => void;
   children: React.ReactNode;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
   account,
-  coinBalance,
+  leelasBalance,
   onLogout,
   children,
 }) => {
@@ -48,7 +48,7 @@ const MainLayout: React.FC<MainLayoutProps> = ({
               <Pencil size={18} />
             </button>
           </div>
-          <p className="text-sm text-gray-400 mt-1">Coins: {coinBalance}</p>
+          <p className="text-sm text-gray-400 mt-1">Leelas: {leelasBalance}</p>
         </div>
 
         {/* Middle: Navigation */}

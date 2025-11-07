@@ -34,6 +34,27 @@ const getRarityColor = (rarity: string) => {
   }
 };
 
+const typeColors: Record<string, string> = {
+  Fire: "text-red-400",
+  Water: "text-blue-400",
+  Grass: "text-green-400",
+  Electric: "text-yellow-300",
+  Psychic: "text-purple-400",
+  Normal: "text-gray-300",
+  Ghost: "text-indigo-400",
+  Dragon: "text-orange-400",
+  Ice: "text-cyan-300",
+  Rock: "text-stone-400",
+  Ground: "text-amber-600",
+  Poison: "text-purple-700",
+  Bug: "text-lime-400",
+  Dark: "text-gray-700",
+  Steel: "text-slate-400",
+  Fighting: "text-red-700",
+  Fairy: "text-pink-400",
+  Flying: "text-sky-300",
+};
+
 const MarketplacePage: React.FC = () => {
   const [pokemons, setPokemons] = useState<Pokemon[]>([]);
   const [loading, setLoading] = useState(true);
@@ -45,7 +66,7 @@ const MarketplacePage: React.FC = () => {
     latest: "Default",
   });
 
-  const fetchRandomPokemons = async (count = 9) => {
+  const fetchRandomPokemons = async (count = 8) => {
     setLoading(true);
     const fetched: Pokemon[] = [];
 
@@ -237,32 +258,80 @@ const MarketplacePage: React.FC = () => {
 
       {/* Pokémon Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {filteredPokemons.map((pokemon) => (
-          <div
-            key={pokemon.tokenId}
-            className="relative bg-gray-800 p-4 rounded-lg text-center shadow-md group hover:shadow-lg transition duration-300"
-          >
-            <img
-              src={pokemon.image}
-              alt={pokemon.name}
-              className="mx-auto mb-3 w-32 h-32 object-contain"
-            />
-            <h4 className="font-semibold text-xl">{pokemon.name}</h4>
-            <p className="capitalize text-gray-300">{pokemon.type} type</p>
-            <p className={`${getRarityColor(pokemon.rarity)} font-bold`}>
-              {pokemon.rarity}
-            </p>
-            <p className="text-gray-400">Level {pokemon.level}</p>
-            <p className="mt-2 text-gray-400">{pokemon.price} Coins</p>
+        {filteredPokemons.map((pokemon) => {
+          const rarityGlow = {
+            Legendary:
+              "ring-2 ring-yellow-400 shadow-[0_0_20px_3px_rgba(250,204,21,0.6)] animate-legendary",
+            Epic: "ring-2 ring-purple-500 shadow-[0_0_18px_3px_rgba(168,85,247,0.6)]",
+            Rare: "ring-2 ring-blue-400 shadow-[0_0_12px_3px_rgba(59,130,246,0.6)]",
+            Common:
+              "ring-1 ring-green-400 shadow-[0_0_10px_2px_rgba(74,222,128,0.5)]",
+          }[pokemon.rarity];
 
-            <button
-              onClick={() => handleBuy(pokemon)}
-              className="absolute inset-0 bg-black bg-opacity-70 flex items-center justify-center text-yellow-400 font-bold opacity-0 group-hover:opacity-100 transition-opacity rounded-lg"
+          return (
+            <div
+              key={pokemon.tokenId}
+              className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-transform transform hover:-translate-y-1 relative ${rarityGlow}`}
             >
-              Buy Now
-            </button>
-          </div>
-        ))}
+              {/* Pokémon Image Section */}
+              <div className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6">
+                {/* Level Badge */}
+                <span className="absolute top-2 left-2 bg-yellow-500 text-black font-bold text-xs px-2 py-1 rounded-full shadow-md">
+                  Lv. {pokemon.level}
+                </span>
+
+                <img
+                  src={pokemon.image}
+                  alt={pokemon.name}
+                  className="w-44 h-44 object-contain drop-shadow-lg transition-transform duration-300 group-hover:scale-105"
+                />
+              </div>
+
+              {/* Pokémon Details Section */}
+              <div className="bg-gradient-to-b from-gray-700 to-gray-800 p-4 border-t border-gray-700 relative text-left transition-all duration-300 group-hover:-translate-y-10">
+                {/* Element + Token ID */}
+                <p className="mb-1 inline-flex items-center space-x-1 px-2 py-1 rounded-md bg-white/10 border border-white/20">
+                  <span
+                    className={`capitalize font-semibold ${
+                      typeColors[
+                        pokemon.type.charAt(0).toUpperCase() +
+                          pokemon.type.slice(1)
+                      ] || "text-white"
+                    }`}
+                  >
+                    {pokemon.type}
+                  </span>
+                  <span className="text-gray-300 font-mono">
+                    #{pokemon.tokenId.slice(0, 6)}...
+                  </span>
+                </p>
+
+                {/* Rarity + Pokémon Name */}
+                <h4 className="font-bold text-lg mb-1">
+                  <span className={`${getRarityColor(pokemon.rarity)} mr-1`}>
+                    {pokemon.rarity}
+                  </span>
+                  <span className="text-white">{pokemon.name}</span>
+                </h4>
+
+                {/* Price */}
+                <p className="mt-1 font-bold text-yellow-400 text-lg">
+                  {pokemon.price} Leelas
+                </p>
+
+                {/* Hover Buy Button */}
+                <div className="absolute bottom-4 left-0 right-0 px-4 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-11 transition-all duration-300">
+                  <button
+                    onClick={() => handleBuy(pokemon)}
+                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-semibold py-2 px-4 rounded-lg transition"
+                  >
+                    Buy Now
+                  </button>
+                </div>
+              </div>
+            </div>
+          );
+        })}
       </div>
 
       {loading && (
