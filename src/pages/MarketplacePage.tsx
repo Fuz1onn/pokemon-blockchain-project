@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
+import { calculateEthPrice } from "../utils/price";
+import { FaEthereum } from "react-icons/fa";
 
 interface Pokemon {
   id: number;
@@ -171,10 +173,11 @@ const MarketplacePage: React.FC = () => {
   }, [loading]);
 
   const handleBuy = (pokemon: Pokemon) => {
+    const ethPrice = calculateEthPrice(pokemon.rarity, pokemon.level);
     alert(
       `You bought ${pokemon.name} (${
         pokemon.rarity
-      }) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
+      }) for Ξ ${ethPrice} — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
     );
     // TODO: integrate blockchain buy/mint logic
   };
@@ -362,8 +365,9 @@ const MarketplacePage: React.FC = () => {
                 </h4>
 
                 {/* Price */}
-                <p className="mt-1 font-bold text-yellow-400 text-lg">
-                  {pokemon.price} Leelas
+                <p className="text-yellow-400 font-bold text-lg mt-1 flex items-center gap-2">
+                  <FaEthereum />{" "}
+                  {calculateEthPrice(pokemon.rarity, pokemon.level)}
                 </p>
 
                 {/* Hover Buy Button */}

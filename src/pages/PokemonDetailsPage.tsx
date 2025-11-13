@@ -3,6 +3,8 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { Move } from "../utils/pokemonSkills";
 import { pokemonSkills } from "../utils/pokemonSkills";
 import ForestBg from "../assets/background/forest.jpg";
+import { calculateEthPrice } from "../utils/price";
+import { FaEthereum } from "react-icons/fa";
 
 interface Pokemon {
   id: number;
@@ -103,7 +105,7 @@ const PokemonDetailsPage: React.FC = () => {
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
       <button
         onClick={() => navigate(-1)}
-        className="mb-6 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition"
+        className="mb-6 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition cursor-pointer"
       >
         &larr; Back to Marketplace
       </button>
@@ -168,13 +170,14 @@ const PokemonDetailsPage: React.FC = () => {
             <div className="flex items-center gap-4 mt-3">
               {/* Price */}
               <p className="text-yellow-400 font-bold text-xl flex items-center gap-2">
-                💰 {pokemon.price} Leelas
+                <FaEthereum />{" "}
+                {calculateEthPrice(pokemon.rarity, pokemon.level)}
               </p>
 
               {/* Buy Button */}
               <button
                 onClick={() => handleBuy(pokemon)}
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-400 text-black font-bold py-2 px-5 rounded-xl shadow-md hover:scale-105 hover:from-yellow-400 hover:to-yellow-300 transition transform"
+                className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-400 text-black font-bold py-2 px-5 rounded-xl shadow-md hover:from-yellow-600 hover:to-yellow-700 transition transform cursor-pointer"
               >
                 Buy Now
               </button>
