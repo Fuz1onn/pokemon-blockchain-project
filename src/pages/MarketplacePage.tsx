@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 
 interface Pokemon {
@@ -11,6 +12,16 @@ interface Pokemon {
   tokenId: string;
   level: number;
   timestamp: number; // for sorting "Latest"
+  stats: Stats;
+}
+
+interface Stats {
+  hp: number;
+  attack: number;
+  defense: number;
+  speed: number;
+  specialAttack: number;
+  specialDefense: number;
 }
 
 const getRandomRarity = (): string => {
@@ -56,6 +67,7 @@ const typeColors: Record<string, string> = {
 };
 
 const MarketplacePage: React.FC = () => {
+  const navigate = useNavigate();
   const [pokemons, setPokemons] = useState<Pokemon[]>([]);
   const [loading, setLoading] = useState(true);
   const [filters, setFilters] = useState({
@@ -65,6 +77,31 @@ const MarketplacePage: React.FC = () => {
     price: "All",
     latest: "Default",
   });
+
+  // Generate stats based on level & rarity
+  const generateStats = (level: number, rarity: string): Stats => {
+    const base =
+      {
+        Common: 40,
+        Rare: 60,
+        Epic: 80,
+        Legendary: 100,
+      }[rarity] ?? 40; // fallback to 40
+
+    const variation = 10;
+
+    const randomStat = () =>
+      Math.floor(base + Math.random() * variation + level * 2);
+
+    return {
+      hp: randomStat(),
+      attack: randomStat(),
+      defense: randomStat(),
+      speed: randomStat(),
+      specialAttack: randomStat(),
+      specialDefense: randomStat(),
+    };
+  };
 
   const fetchRandomPokemons = async (count = 8) => {
     setLoading(true);
@@ -91,6 +128,8 @@ const MarketplacePage: React.FC = () => {
             ? 100
             : 50;
 
+        const stats = generateStats(level, rarity);
+
         fetched.push({
           id: data.id,
           name: data.name.charAt(0).toUpperCase() + data.name.slice(1),
@@ -101,6 +140,7 @@ const MarketplacePage: React.FC = () => {
           tokenId: uuidv4(),
           level,
           timestamp: Date.now(),
+          stats,
         });
       } catch (err) {
         console.error("Error fetching Pokémon:", err);
@@ -137,6 +177,10 @@ const MarketplacePage: React.FC = () => {
       }) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
     );
     // TODO: integrate blockchain buy/mint logic
+  };
+
+  const handleCardClick = (pokemon: Pokemon) => {
+    navigate(`/marketplace/${pokemon.tokenId}`, { state: { pokemon } });
   };
 
   const handleRefresh = () => {
@@ -274,7 +318,10 @@ const MarketplacePage: React.FC = () => {
               className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-transform transform hover:-translate-y-1 relative ${rarityGlow}`}
             >
               {/* Pokémon Image Section */}
-              <div className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6">
+              <div
+                className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6"
+                onClick={() => handleCardClick(pokemon)}
+              >
                 {/* Level Badge */}
                 <span className="absolute top-2 left-2 bg-yellow-500 text-black font-bold text-xs px-2 py-1 rounded-full shadow-md">
                   Lv. {pokemon.level}

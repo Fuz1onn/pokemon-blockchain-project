@@ -5,6 +5,7 @@ import LoginPage from "./pages/LoginPage";
 import HomePage from "./pages/HomePage";
 import MyPokemonPage from "./pages/MyPokemonPage";
 import MarketplacePage from "./pages/MarketplacePage";
+import PokemonDetailsPage from "./pages/PokemonDetailsPage";
 
 // Pokémon GIFs
 import pikachu from "./assets/pokemons/pikachu.gif";
@@ -89,6 +90,22 @@ const App: React.FC = () => {
               onLogout={handleLogout}
             >
               <MarketplacePage />
+            </MainLayout>
+          ) : (
+            <Navigate to="/" replace />
+          )
+        }
+      />
+      <Route
+        path="/marketplace/:tokenId"
+        element={
+          account ? (
+            <MainLayout
+              account={account}
+              leelasBalance={leelasBalance}
+              onLogout={handleLogout}
+            >
+              <PokemonDetailsPage />
             </MainLayout>
           ) : (
             <Navigate to="/" replace />
