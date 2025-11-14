@@ -6,6 +6,7 @@ import HomePage from "./pages/HomePage";
 import MyPokemonPage from "./pages/MyPokemonPage";
 import MarketplacePage from "./pages/MarketplacePage";
 import PokemonDetailsPage from "./pages/PokemonDetailsPage";
+import type { Pokemon, MarketplaceFilters } from "./utils/types";
 
 // Pokémon GIFs
 import pikachu from "./assets/pokemons/pikachu.gif";
@@ -22,6 +23,16 @@ const App: React.FC = () => {
   const [account, setAccount] = useState<string | null>(null);
   const [leelasBalance, setLeelasBalance] = useState<number>(100);
   const [ownedPokemons, setOwnedPokemons] = useState(initialPokemons);
+
+  const [marketplacePokemons, setMarketplacePokemons] = useState<Pokemon[]>([]);
+  const [marketplaceFilters, setMarketplaceFilters] =
+    useState<MarketplaceFilters>({
+      type: "All",
+      rarity: "All",
+      level: "All",
+      price: "All",
+      latest: "Default",
+    });
 
   const handleLogout = () => setAccount(null);
   const handleStartMatch = () => alert("Starting match...");
@@ -89,7 +100,12 @@ const App: React.FC = () => {
               leelasBalance={leelasBalance}
               onLogout={handleLogout}
             >
-              <MarketplacePage />
+              <MarketplacePage
+                marketplacePokemons={marketplacePokemons}
+                setMarketplacePokemons={setMarketplacePokemons}
+                filters={marketplaceFilters}
+                setFilters={setMarketplaceFilters}
+              />
             </MainLayout>
           ) : (
             <Navigate to="/" replace />

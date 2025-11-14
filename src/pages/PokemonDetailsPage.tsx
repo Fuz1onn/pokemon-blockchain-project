@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import type { Move } from "../utils/pokemonSkills";
 import { pokemonSkills } from "../utils/pokemonSkills";
@@ -100,6 +100,19 @@ const PokemonDetailsPage: React.FC = () => {
 
   const stats = generateStats(pokemon.rarity, pokemon.level);
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
+  const { eth, usd } = calculateEthPrice(pokemon.rarity, pokemon.level);
+
+  const handleBuy = () => {
+    alert(
+      `You bought ${pokemon.name} (${
+        pokemon.rarity
+      }) for Ξ ${eth} (~$${usd}) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
+    );
+  };
+
+  useEffect(() => {
+    window.scrollTo(0, 0); // scroll to top on mount
+  }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
@@ -126,7 +139,7 @@ const PokemonDetailsPage: React.FC = () => {
           <img
             src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokemon.id}.gif`}
             alt={pokemon.name}
-            className="relative w-54 h-54 object-contain drop-shadow-2xl"
+            className="relative w-32 h-32 object-contain drop-shadow-2xl"
           />
         </div>
 
@@ -170,13 +183,15 @@ const PokemonDetailsPage: React.FC = () => {
             <div className="flex items-center gap-4 mt-3">
               {/* Price */}
               <p className="text-yellow-400 font-bold text-xl flex items-center gap-2">
-                <FaEthereum />{" "}
-                {calculateEthPrice(pokemon.rarity, pokemon.level)}
+                <FaEthereum /> {eth}{" "}
+                <span className="text-gray-400 text-sm font-normal">
+                  (~${usd})
+                </span>
               </p>
 
               {/* Buy Button */}
               <button
-                onClick={() => handleBuy(pokemon)}
+                onClick={handleBuy}
                 className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-400 text-black font-bold py-2 px-5 rounded-xl shadow-md hover:from-yellow-600 hover:to-yellow-700 transition transform cursor-pointer"
               >
                 Buy Now
