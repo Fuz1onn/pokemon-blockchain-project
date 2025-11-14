@@ -105,13 +105,17 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
         const level = Math.floor(Math.random() * 30) + 1;
         const stats = generateStats(level, rarity);
 
+        // Calculate price ONCE when creating the Pokemon
+        const { eth, usd } = calculateEthPrice(rarity, level);
+
         fetched.push({
           id: data.id,
           name: data.name.charAt(0).toUpperCase() + data.name.slice(1),
           image: data.sprites.other["official-artwork"].front_default,
           type: data.types[0].type.name,
           rarity,
-          price: 0, // dynamic
+          price: usd, // Store USD price
+          ethPrice: eth, // Store ETH price
           tokenId: uuidv4(),
           level,
           timestamp: Date.now(),
@@ -149,11 +153,10 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
   }, [loading]);
 
   const handleBuy = (pokemon: Pokemon) => {
-    const { eth, usd } = calculateEthPrice(pokemon.rarity, pokemon.level);
     alert(
-      `You bought ${pokemon.name} (${
-        pokemon.rarity
-      }) for Ξ ${eth} (~$${usd}) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
+      `You bought ${pokemon.name} (${pokemon.rarity}) for Ξ ${
+        pokemon.ethPrice
+      } (~$${pokemon.price}) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
     );
   };
 
@@ -305,8 +308,6 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
               "ring-1 ring-green-400 shadow-[0_0_10px_2px_rgba(74,222,128,0.5)]",
           }[pokemon.rarity];
 
-          const { eth, usd } = calculateEthPrice(pokemon.rarity, pokemon.level);
-
           return (
             <div
               key={pokemon.tokenId}
@@ -351,9 +352,9 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
                 </h4>
 
                 <p className="text-yellow-400 font-bold text-lg mt-1 flex items-center gap-2">
-                  <FaEthereum /> {eth}{" "}
+                  <FaEthereum /> {pokemon.ethPrice}{" "}
                   <span className="text-gray-400 text-sm font-normal">
-                    (~${usd})
+                    (~${pokemon.price})
                   </span>
                 </p>
 

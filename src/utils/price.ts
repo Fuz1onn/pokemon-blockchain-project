@@ -23,10 +23,8 @@ export const calculateUsdPrice = (rarity: string, level: number): number => {
   // Linear interpolation based on level
   const price = min + ((max - min) * normalizedLevel) / 30;
 
-  // Optional small random variation ±5%
-  const variation = price * (Math.random() * 0.1 - 0.05);
-
-  return +(price + variation).toFixed(2);
+  // Removed random variation for consistent pricing
+  return +price.toFixed(2);
 };
 
 /**
@@ -38,9 +36,14 @@ export const usdToEth = (usdPrice: number): number => {
 
 /**
  * Calculate both ETH and USD prices for display
+ * Ensures ETH and USD are mathematically equivalent by calculating USD from final ETH
  */
 export const calculateEthPrice = (rarity: string, level: number) => {
-  const usdPrice = calculateUsdPrice(rarity, level);
-  const ethPrice = usdToEth(usdPrice);
+  const baseUsdPrice = calculateUsdPrice(rarity, level);
+  const ethPrice = usdToEth(baseUsdPrice);
+
+  // Recalculate USD from the rounded ETH to ensure they match
+  const usdPrice = +(ethPrice * ETH_USD_RATE).toFixed(2);
+
   return { usd: usdPrice, eth: ethPrice };
 };

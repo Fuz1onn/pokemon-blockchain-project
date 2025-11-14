@@ -13,7 +13,8 @@ export interface Pokemon {
   image: string;
   type: string;
   rarity: string;
-  price: number;
+  price: number; // USD price
+  ethPrice?: number; // ETH price (stored once when created)
   tokenId: string;
   level: number;
   timestamp: number;

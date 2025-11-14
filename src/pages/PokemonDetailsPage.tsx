@@ -3,7 +3,6 @@ import { useLocation, useNavigate } from "react-router-dom";
 import type { Move } from "../utils/pokemonSkills";
 import { pokemonSkills } from "../utils/pokemonSkills";
 import ForestBg from "../assets/background/forest.jpg";
-import { calculateEthPrice } from "../utils/price";
 import { FaEthereum } from "react-icons/fa";
 
 interface Pokemon {
@@ -13,6 +12,7 @@ interface Pokemon {
   type: string;
   rarity: string;
   price: number;
+  ethPrice?: number;
   tokenId: string;
   level: number;
   timestamp: number;
@@ -67,24 +67,6 @@ const getRarityColor = (rarity: string) => {
   }
 };
 
-const generateStats = (rarity: string, level: number) => {
-  const variation = 10;
-  const base =
-    {
-      Common: 40,
-      Rare: 60,
-      Epic: 80,
-      Legendary: 100,
-    }[rarity] ?? 40;
-
-  return {
-    hp: Math.floor(base + Math.random() * variation + level * 2),
-    attack: Math.floor(base + Math.random() * variation + level * 2),
-    defense: Math.floor(base + Math.random() * variation + level * 2),
-    speed: Math.floor(base + Math.random() * variation + level * 2),
-  };
-};
-
 const PokemonDetailsPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -98,9 +80,11 @@ const PokemonDetailsPage: React.FC = () => {
     );
   }
 
-  const stats = generateStats(pokemon.rarity, pokemon.level);
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
-  const { eth, usd } = calculateEthPrice(pokemon.rarity, pokemon.level);
+
+  // Use stored prices from the pokemon object
+  const eth = pokemon.ethPrice || 0;
+  const usd = pokemon.price || 0;
 
   const handleBuy = () => {
     alert(
@@ -203,19 +187,23 @@ const PokemonDetailsPage: React.FC = () => {
           <div
             className={`bg-gray-800/60 p-6 rounded-2xl shadow-md grid grid-cols-2 sm:grid-cols-4 gap-6`}
           >
-            {Object.entries(stats).map(([key, value]) => (
-              <div
-                key={key}
-                className="text-center p-3 rounded-lg bg-gray-900/50 border border-white/10"
-              >
-                <p className="uppercase text-gray-400 text-sm tracking-wider font-medium">
-                  {key}
-                </p>
-                <p className="text-2xl font-extrabold text-yellow-400">
-                  {value}
-                </p>
-              </div>
-            ))}
+            {Object.entries(pokemon.stats)
+              .filter(
+                ([key]) => key !== "specialAttack" && key !== "specialDefense"
+              )
+              .map(([key, value]) => (
+                <div
+                  key={key}
+                  className="text-center p-3 rounded-lg bg-gray-900/50 border border-white/10"
+                >
+                  <p className="uppercase text-gray-400 text-sm tracking-wider font-medium">
+                    {key}
+                  </p>
+                  <p className="text-2xl font-extrabold text-yellow-400">
+                    {value}
+                  </p>
+                </div>
+              ))}
           </div>
 
           {/* Moves Section */}
