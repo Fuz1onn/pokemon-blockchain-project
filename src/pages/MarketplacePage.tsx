@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { calculateEthPrice } from "../utils/price";
+import { buyPokemon, checkNetwork } from "../contracts/contractUtils";
 import { FaEthereum } from "react-icons/fa";
 import type { Pokemon, Stats, MarketplaceFilters } from "../utils/types";
 
@@ -62,6 +63,7 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
 }) => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [buyingTokenId, setBuyingTokenId] = useState<string | null>(null);
 
   // Generate stats based on level & rarity
   const generateStats = (level: number, rarity: string): Stats => {
@@ -105,7 +107,6 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
         const level = Math.floor(Math.random() * 30) + 1;
         const stats = generateStats(level, rarity);
 
-        // Calculate price ONCE when creating the Pokemon
         const { eth, usd } = calculateEthPrice(rarity, level);
 
         fetched.push({
@@ -114,8 +115,8 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
           image: data.sprites.other["official-artwork"].front_default,
           type: data.types[0].type.name,
           rarity,
-          price: usd, // Store USD price
-          ethPrice: eth, // Store ETH price
+          price: usd,
+          ethPrice: eth,
           tokenId: uuidv4(),
           level,
           timestamp: Date.now(),
@@ -152,12 +153,44 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
     return () => window.removeEventListener("scroll", handleScroll);
   }, [loading]);
 
-  const handleBuy = (pokemon: Pokemon) => {
-    alert(
-      `You bought ${pokemon.name} (${pokemon.rarity}) for Ξ ${
-        pokemon.ethPrice
-      } (~$${pokemon.price}) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
-    );
+  const handleBuy = async (pokemon: Pokemon) => {
+    try {
+      setBuyingTokenId(pokemon.tokenId);
+
+      // Check if on correct network
+      await checkNetwork();
+
+      // Confirm purchase
+      const confirmed = window.confirm(
+        `Buy ${pokemon.name} (${pokemon.rarity}) for Ξ ${pokemon.ethPrice} (~$${pokemon.price})?\n\nThis will create a blockchain transaction.`
+      );
+
+      if (!confirmed) {
+        setBuyingTokenId(null);
+        return;
+      }
+
+      // Execute purchase on blockchain
+      const result = await buyPokemon(pokemon.tokenId, pokemon.ethPrice || 0);
+
+      if (result.success) {
+        alert(
+          `✅ Successfully purchased ${
+            pokemon.name
+          }!\n\nTransaction: ${result.transactionHash.slice(0, 10)}...`
+        );
+
+        // Remove from marketplace
+        setMarketplacePokemons((prev) =>
+          prev.filter((p) => p.tokenId !== pokemon.tokenId)
+        );
+      }
+    } catch (error: any) {
+      console.error("Purchase failed:", error);
+      alert(`❌ Purchase failed: ${error.message}`);
+    } finally {
+      setBuyingTokenId(null);
+    }
   };
 
   const handleCardClick = (pokemon: Pokemon) => {
@@ -308,6 +341,8 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
               "ring-1 ring-green-400 shadow-[0_0_10px_2px_rgba(74,222,128,0.5)]",
           }[pokemon.rarity];
 
+          const isBuying = buyingTokenId === pokemon.tokenId;
+
           return (
             <div
               key={pokemon.tokenId}
@@ -360,10 +395,18 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
 
                 <div className="absolute bottom-4 left-0 right-0 px-4 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-11 transition-all duration-300">
                   <button
-                    onClick={() => handleBuy(pokemon)}
-                    className="w-full bg-yellow-500 hover:bg-yellow-400 text-black font-semibold py-2 px-4 rounded-lg transition cursor-pointer"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleBuy(pokemon);
+                    }}
+                    disabled={isBuying}
+                    className={`w-full ${
+                      isBuying
+                        ? "bg-gray-600 cursor-not-allowed"
+                        : "bg-yellow-500 hover:bg-yellow-400"
+                    } text-black font-semibold py-2 px-4 rounded-lg transition cursor-pointer`}
                   >
-                    Buy Now
+                    {isBuying ? "Processing..." : "Buy Now"}
                   </button>
                 </div>
               </div>
