@@ -24,7 +24,8 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect }) => {
         return;
       }
 
-      const provider = new ethers.BrowserProvider(window.ethereum);
+      // ETHERS V5 SYNTAX
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
       const accounts = await provider.send("eth_requestAccounts", []);
       setAccount(accounts[0]);
       onConnect(accounts[0]);
@@ -36,7 +37,9 @@ const WalletConnect: React.FC<WalletConnectProps> = ({ onConnect }) => {
   const switchAccount = async () => {
     try {
       if (!window.ethereum) return;
-      const provider = new ethers.BrowserProvider(window.ethereum);
+
+      // ETHERS V5 SYNTAX
+      const provider = new ethers.providers.Web3Provider(window.ethereum);
       const accounts = await provider.send("eth_requestAccounts", []);
       setAccount(accounts[0]);
       onConnect(accounts[0]);

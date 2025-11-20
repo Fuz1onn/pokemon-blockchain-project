@@ -24,8 +24,9 @@ export const getContract = async () => {
     throw new Error("MetaMask not installed");
   }
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
+  // ETHERS V5 SYNTAX
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
+  const signer = provider.getSigner();
 
   return new ethers.Contract(contractAddress.address, CONTRACT_ABI, signer);
 };
@@ -38,7 +39,8 @@ export const getContractReadOnly = async () => {
     throw new Error("MetaMask not installed");
   }
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
+  // ETHERS V5 SYNTAX
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
 
   return new ethers.Contract(contractAddress.address, CONTRACT_ABI, provider);
 };
@@ -49,7 +51,9 @@ export const getContractReadOnly = async () => {
 export const buyPokemon = async (tokenId: string, priceInEth: number) => {
   try {
     const contract = await getContract();
-    const priceInWei = ethers.parseEther(priceInEth.toString());
+
+    // ETHERS V5 SYNTAX - parseEther instead of parseEther
+    const priceInWei = ethers.utils.parseEther(priceInEth.toString());
 
     // Call buyPokemon function with the price as value
     const tx = await contract.buyPokemon(tokenId, { value: priceInWei });
@@ -59,11 +63,11 @@ export const buyPokemon = async (tokenId: string, priceInEth: number) => {
     // Wait for confirmation
     const receipt = await tx.wait();
 
-    console.log("Transaction confirmed:", receipt.hash);
+    console.log("Transaction confirmed:", receipt.transactionHash);
 
     return {
       success: true,
-      transactionHash: receipt.hash,
+      transactionHash: receipt.transactionHash,
     };
   } catch (error: any) {
     console.error("Error buying Pokemon:", error);
@@ -94,23 +98,12 @@ export const mintPokemon = async (to: string, metadataUri: string) => {
     const receipt = await tx.wait();
 
     // Get token ID from event
-    const event = receipt.logs.find((log: any) => {
-      try {
-        return contract.interface.parseLog(log)?.name === "PokemonMinted";
-      } catch {
-        return false;
-      }
-    });
-
-    let tokenId = null;
-    if (event) {
-      const parsedEvent = contract.interface.parseLog(event);
-      tokenId = parsedEvent?.args[0].toString();
-    }
+    const event = receipt.events?.find((e: any) => e.event === "PokemonMinted");
+    const tokenId = event?.args?.[0]?.toString() || null;
 
     return {
       success: true,
-      transactionHash: receipt.hash,
+      transactionHash: receipt.transactionHash,
       tokenId,
     };
   } catch (error: any) {
@@ -125,7 +118,9 @@ export const mintPokemon = async (to: string, metadataUri: string) => {
 export const listPokemon = async (tokenId: string, priceInEth: number) => {
   try {
     const contract = await getContract();
-    const priceInWei = ethers.parseEther(priceInEth.toString());
+
+    // ETHERS V5 SYNTAX
+    const priceInWei = ethers.utils.parseEther(priceInEth.toString());
 
     const tx = await contract.listPokemon(tokenId, priceInWei);
 
@@ -135,7 +130,7 @@ export const listPokemon = async (tokenId: string, priceInEth: number) => {
 
     return {
       success: true,
-      transactionHash: receipt.hash,
+      transactionHash: receipt.transactionHash,
     };
   } catch (error: any) {
     console.error("Error listing Pokemon:", error);
@@ -151,10 +146,11 @@ export const getListing = async (tokenId: string) => {
     const contract = await getContractReadOnly();
     const listing = await contract.getListing(tokenId);
 
+    // ETHERS V5 SYNTAX - formatEther instead of formatEther
     return {
       tokenId: listing[0].toString(),
       seller: listing[1],
-      price: ethers.formatEther(listing[2]),
+      price: ethers.utils.formatEther(listing[2]),
       isListed: listing[3],
     };
   } catch (error: any) {
@@ -171,11 +167,12 @@ export const checkNetwork = async () => {
     throw new Error("MetaMask not installed");
   }
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
+  // ETHERS V5 SYNTAX
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
   const network = await provider.getNetwork();
 
   // Sepolia chainId is 11155111
-  if (network.chainId !== BigInt(11155111)) {
+  if (network.chainId !== 11155111) {
     throw new Error("Please switch to Sepolia network in MetaMask");
   }
 
@@ -190,10 +187,11 @@ export const getEthBalance = async (address: string) => {
     throw new Error("MetaMask not installed");
   }
 
-  const provider = new ethers.BrowserProvider(window.ethereum);
+  // ETHERS V5 SYNTAX
+  const provider = new ethers.providers.Web3Provider(window.ethereum);
   const balance = await provider.getBalance(address);
 
-  return ethers.formatEther(balance);
+  return ethers.utils.formatEther(balance);
 };
 
 export { contractAddress };

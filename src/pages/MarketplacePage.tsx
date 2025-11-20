@@ -170,6 +170,11 @@ const MarketplacePage: React.FC<MarketplaceProps> = ({
         return;
       }
 
+      console.log("BUY DEBUG:", {
+        tokenId: pokemon.tokenId,
+        priceInEth: pokemon.ethPrice,
+      });
+
       // Execute purchase on blockchain
       const result = await buyPokemon(pokemon.tokenId, pokemon.ethPrice || 0);
 
