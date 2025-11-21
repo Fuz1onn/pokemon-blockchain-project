@@ -1,7 +1,6 @@
 import { ethers } from "ethers";
 import contractAddress from "./contract-address.json";
 
-// Contract ABI - only the functions we need
 const CONTRACT_ABI = [
   "function mintPokemon(address to, string memory uri) public returns (uint256)",
   "function listPokemon(uint256 tokenId, uint256 price) public",
@@ -16,54 +15,82 @@ const CONTRACT_ABI = [
   "event PokemonSold(uint256 indexed tokenId, address indexed seller, address indexed buyer, uint256 price)",
 ];
 
-/**
- * Get contract instance with signer
- */
 export const getContract = async () => {
   if (!window.ethereum) {
     throw new Error("MetaMask not installed");
   }
-
-  // ETHERS V5 SYNTAX
   const provider = new ethers.providers.Web3Provider(window.ethereum);
   const signer = provider.getSigner();
-
   return new ethers.Contract(contractAddress.address, CONTRACT_ABI, signer);
 };
 
-/**
- * Get contract instance with provider (read-only)
- */
 export const getContractReadOnly = async () => {
   if (!window.ethereum) {
     throw new Error("MetaMask not installed");
   }
-
-  // ETHERS V5 SYNTAX
   const provider = new ethers.providers.Web3Provider(window.ethereum);
-
   return new ethers.Contract(contractAddress.address, CONTRACT_ABI, provider);
 };
 
 /**
- * Buy a Pokemon NFT
+ * Mint a new Pokemon NFT and optionally list it
+ * Used when buying from General Marketplace
  */
-export const buyPokemon = async (tokenId: string, priceInEth: number) => {
+export const mintAndBuyPokemon = async (
+  userAddress: string,
+  metadataUri: string,
+  priceInEth: number
+) => {
   try {
     const contract = await getContract();
 
-    // ETHERS V5 SYNTAX - parseEther instead of parseEther
+    // Step 1: Mint the NFT to the buyer
+    console.log("Minting Pokemon NFT...");
+    const mintTx = await contract.mintPokemon(userAddress, metadataUri);
+    const mintReceipt = await mintTx.wait();
+
+    // Get token ID from event
+    const event = mintReceipt.events?.find(
+      (e: any) => e.event === "PokemonMinted"
+    );
+    const tokenId = event?.args?.[0]?.toString();
+
+    if (!tokenId) {
+      throw new Error("Failed to get token ID from mint transaction");
+    }
+
+    console.log("Pokemon minted! Token ID:", tokenId);
+
+    return {
+      success: true,
+      transactionHash: mintReceipt.transactionHash,
+      tokenId: parseInt(tokenId),
+    };
+  } catch (error: any) {
+    console.error("Error minting Pokemon:", error);
+
+    if (error.code === "ACTION_REJECTED") {
+      throw new Error("Transaction rejected by user");
+    } else if (error.message.includes("insufficient funds")) {
+      throw new Error("Insufficient ETH balance");
+    }
+
+    throw new Error(error.message || "Failed to mint Pokemon");
+  }
+};
+
+/**
+ * Buy a listed Pokemon NFT (from Player Listings)
+ */
+export const buyListedPokemon = async (tokenId: number, priceInEth: number) => {
+  try {
+    const contract = await getContract();
     const priceInWei = ethers.utils.parseEther(priceInEth.toString());
 
-    // Call buyPokemon function with the price as value
+    console.log("Buying Pokemon...", { tokenId, priceInEth });
+
     const tx = await contract.buyPokemon(tokenId, { value: priceInWei });
-
-    console.log("Transaction sent:", tx.hash);
-
-    // Wait for confirmation
     const receipt = await tx.wait();
-
-    console.log("Transaction confirmed:", receipt.transactionHash);
 
     return {
       success: true,
@@ -72,7 +99,6 @@ export const buyPokemon = async (tokenId: string, priceInEth: number) => {
   } catch (error: any) {
     console.error("Error buying Pokemon:", error);
 
-    // Handle specific errors
     if (error.code === "ACTION_REJECTED") {
       throw new Error("Transaction rejected by user");
     } else if (error.message.includes("insufficient funds")) {
@@ -86,46 +112,14 @@ export const buyPokemon = async (tokenId: string, priceInEth: number) => {
 };
 
 /**
- * Mint a new Pokemon NFT (for marketplace listings)
+ * List your owned Pokemon for sale
  */
-export const mintPokemon = async (to: string, metadataUri: string) => {
+export const listPokemon = async (tokenId: number, priceInEth: number) => {
   try {
     const contract = await getContract();
-    const tx = await contract.mintPokemon(to, metadataUri);
-
-    console.log("Minting transaction sent:", tx.hash);
-
-    const receipt = await tx.wait();
-
-    // Get token ID from event
-    const event = receipt.events?.find((e: any) => e.event === "PokemonMinted");
-    const tokenId = event?.args?.[0]?.toString() || null;
-
-    return {
-      success: true,
-      transactionHash: receipt.transactionHash,
-      tokenId,
-    };
-  } catch (error: any) {
-    console.error("Error minting Pokemon:", error);
-    throw new Error(error.message || "Failed to mint Pokemon");
-  }
-};
-
-/**
- * List a Pokemon for sale
- */
-export const listPokemon = async (tokenId: string, priceInEth: number) => {
-  try {
-    const contract = await getContract();
-
-    // ETHERS V5 SYNTAX
     const priceInWei = ethers.utils.parseEther(priceInEth.toString());
 
     const tx = await contract.listPokemon(tokenId, priceInWei);
-
-    console.log("Listing transaction sent:", tx.hash);
-
     const receipt = await tx.wait();
 
     return {
@@ -139,16 +133,57 @@ export const listPokemon = async (tokenId: string, priceInEth: number) => {
 };
 
 /**
+ * Get all listed Pokémon from the blockchain
+ */
+export const getAllListings = async (): Promise<any[]> => {
+  try {
+    const contract = await getContractReadOnly();
+
+    // Note: You'll need to add a function to your smart contract
+    // to return all active listings, or query events
+    // For now, this is a placeholder
+
+    // Placeholder: Query PokemonListed events
+    const filter = contract.filters.PokemonListed();
+    const events = await contract.queryFilter(filter);
+
+    const listings = await Promise.all(
+      events.map(async (event: any) => {
+        const tokenId = event.args.tokenId.toNumber();
+        try {
+          const listing = await contract.getListing(tokenId);
+          if (listing.isListed) {
+            return {
+              tokenId,
+              seller: listing.seller,
+              price: ethers.utils.formatEther(listing.price),
+              isListed: listing.isListed,
+            };
+          }
+        } catch (err) {
+          console.error(`Error getting listing for token ${tokenId}:`, err);
+        }
+        return null;
+      })
+    );
+
+    return listings.filter(Boolean);
+  } catch (error) {
+    console.error("Error fetching listings:", error);
+    return [];
+  }
+};
+
+/**
  * Get listing details
  */
-export const getListing = async (tokenId: string) => {
+export const getListing = async (tokenId: number) => {
   try {
     const contract = await getContractReadOnly();
     const listing = await contract.getListing(tokenId);
 
-    // ETHERS V5 SYNTAX - formatEther instead of formatEther
     return {
-      tokenId: listing[0].toString(),
+      tokenId: listing[0].toNumber(),
       seller: listing[1],
       price: ethers.utils.formatEther(listing[2]),
       isListed: listing[3],
@@ -160,6 +195,25 @@ export const getListing = async (tokenId: string) => {
 };
 
 /**
+ * Cancel your listing
+ */
+export const cancelListing = async (tokenId: number) => {
+  try {
+    const contract = await getContract();
+    const tx = await contract.cancelListing(tokenId);
+    const receipt = await tx.wait();
+
+    return {
+      success: true,
+      transactionHash: receipt.transactionHash,
+    };
+  } catch (error: any) {
+    console.error("Error cancelling listing:", error);
+    throw new Error(error.message || "Failed to cancel listing");
+  }
+};
+
+/**
  * Check if connected to correct network
  */
 export const checkNetwork = async () => {
@@ -167,11 +221,9 @@ export const checkNetwork = async () => {
     throw new Error("MetaMask not installed");
   }
 
-  // ETHERS V5 SYNTAX
   const provider = new ethers.providers.Web3Provider(window.ethereum);
   const network = await provider.getNetwork();
 
-  // Sepolia chainId is 11155111
   if (network.chainId !== 11155111) {
     throw new Error("Please switch to Sepolia network in MetaMask");
   }
@@ -187,7 +239,6 @@ export const getEthBalance = async (address: string) => {
     throw new Error("MetaMask not installed");
   }
 
-  // ETHERS V5 SYNTAX
   const provider = new ethers.providers.Web3Provider(window.ethereum);
   const balance = await provider.getBalance(address);
 

@@ -1,31 +1,60 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { ethers } from "ethers";
 import type { Move } from "../utils/pokemonSkills";
 import { pokemonSkills } from "../utils/pokemonSkills";
 import ForestBg from "../assets/background/forest.jpg";
-import { FaEthereum } from "react-icons/fa";
-
-interface Pokemon {
-  id: number;
-  name: string;
-  image: string;
-  type: string;
-  rarity: string;
-  price: number;
-  ethPrice?: number;
-  tokenId: string;
-  level: number;
-  timestamp: number;
-  stats: Stats;
-}
+import {
+  FaEthereum,
+  FaArrowLeft,
+  FaShoppingCart,
+  FaStore,
+  FaUsers,
+} from "react-icons/fa";
+import {
+  mintAndBuyPokemon,
+  buyListedPokemon,
+  checkNetwork,
+} from "../contracts/contractUtils";
 
 interface Stats {
   hp: number;
   attack: number;
   defense: number;
   speed: number;
-  specialAttack: number;
-  specialDefense: number;
+  specialAttack?: number;
+  specialDefense?: number;
+}
+
+interface GeneratedPokemon {
+  id: number;
+  name: string;
+  image: string;
+  type: string;
+  rarity: string;
+  price: number;
+  ethPrice: number;
+  tempId: string;
+  level: number;
+  timestamp: number;
+  stats: Stats;
+  metadataUri?: string;
+}
+
+interface MintedPokemon {
+  id: number;
+  name: string;
+  image: string;
+  type: string;
+  rarity: string;
+  price: number;
+  ethPrice: number;
+  tokenId: number;
+  level: number;
+  timestamp: number;
+  stats: Stats;
+  seller: string;
+  isListed: boolean;
 }
 
 const typeColors: Record<string, string> = {
@@ -70,7 +99,12 @@ const getRarityColor = (rarity: string) => {
 const PokemonDetailsPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
-  const pokemon = location.state?.pokemon as Pokemon;
+  const { pokemon, source } = location.state as {
+    pokemon: GeneratedPokemon | MintedPokemon;
+    source: "general" | "listings";
+  };
+
+  const [buying, setBuying] = useState(false);
 
   if (!pokemon) {
     return (
@@ -81,71 +115,145 @@ const PokemonDetailsPage: React.FC = () => {
   }
 
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
+  const isGeneral = "tempId" in pokemon;
 
-  // Use stored prices from the pokemon object
-  const eth = pokemon.ethPrice || 0;
-  const usd = pokemon.price || 0;
+  const handleBuy = async () => {
+    try {
+      setBuying(true);
+      await checkNetwork();
 
-  const handleBuy = () => {
-    alert(
-      `You bought ${pokemon.name} (${
-        pokemon.rarity
-      }) for Ξ ${eth} (~$${usd}) — Token ID: ${pokemon.tokenId.slice(0, 6)}...`
-    );
+      if (isGeneral) {
+        // Buy from general store (mint)
+        const provider = new ethers.providers.Web3Provider(window.ethereum);
+        const signer = provider.getSigner();
+        const userAddress = await signer.getAddress();
+
+        const confirmed = window.confirm(
+          `Mint and buy ${pokemon.name} (${pokemon.rarity}) for Ξ ${pokemon.ethPrice} (~$${pokemon.price})?\n\nThis will create a blockchain transaction.`
+        );
+
+        if (!confirmed) {
+          setBuying(false);
+          return;
+        }
+
+        const result = await mintAndBuyPokemon(
+          userAddress,
+          (pokemon as GeneratedPokemon).metadataUri!,
+          pokemon.ethPrice
+        );
+
+        if (result.success) {
+          alert(
+            `✅ Successfully minted ${pokemon.name}!\n\nToken ID: ${
+              result.tokenId
+            }\nTransaction: ${result.transactionHash.slice(0, 10)}...`
+          );
+          navigate("/marketplace");
+        }
+      } else {
+        // Buy from player listing
+        const confirmed = window.confirm(
+          `Buy ${pokemon.name} for Ξ ${pokemon.ethPrice}?`
+        );
+
+        if (!confirmed) {
+          setBuying(false);
+          return;
+        }
+
+        const result = await buyListedPokemon(
+          (pokemon as MintedPokemon).tokenId,
+          pokemon.ethPrice
+        );
+
+        if (result.success) {
+          alert(`✅ Successfully purchased ${pokemon.name}!`);
+          navigate("/marketplace");
+        }
+      }
+    } catch (error: any) {
+      console.error("Purchase failed:", error);
+      alert(`❌ Purchase failed: ${error.message}`);
+    } finally {
+      setBuying(false);
+    }
   };
 
   useEffect(() => {
-    window.scrollTo(0, 0); // scroll to top on mount
+    window.scrollTo(0, 0);
   }, []);
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
       <button
         onClick={() => navigate(-1)}
-        className="mb-6 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition cursor-pointer"
+        className="mb-6 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition flex items-center gap-2"
       >
-        &larr; Back to Marketplace
+        <FaArrowLeft />
+        Back to Marketplace
       </button>
+
+      {/* Source Badge */}
+      <div className="mb-4 flex items-center gap-2">
+        {isGeneral ? (
+          <span className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm font-semibold">
+            <FaStore /> General Store • Starter Pokémon
+          </span>
+        ) : (
+          <span className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/50 rounded-lg text-blue-400 text-sm font-semibold">
+            <FaUsers /> Player Listing • Trained Pokémon
+          </span>
+        )}
+      </div>
 
       <div className="flex flex-col md:flex-row gap-10">
         {/* Pokémon Image */}
-        <div className="flex-shrink-0 relative w-64 rounded-2xl shadow-xl flex justify-center items-center overflow-hidden">
-          {/* Background Image */}
+        <div className="flex-shrink-0 relative w-full md:w-80 rounded-2xl shadow-xl flex justify-center items-center overflow-hidden">
           <div
             className="absolute inset-0 bg-cover bg-center"
             style={{ backgroundImage: `url(${ForestBg})` }}
           ></div>
-
-          {/* Optional Overlay for better contrast */}
           <div className="absolute inset-0 bg-black/20"></div>
 
-          {/* Pokémon Sprite */}
+          {/* Animated Sprite */}
           <img
             src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokemon.id}.gif`}
             alt={pokemon.name}
-            className="relative w-32 h-32 object-contain drop-shadow-2xl"
+            className="relative w-48 h-48 object-contain drop-shadow-2xl z-10"
           />
+
+          {/* Rarity Badge on Image */}
+          <div className="absolute top-4 left-4 z-20">
+            <span
+              className={`px-4 py-2 rounded-full text-sm font-bold bg-black/70 ${getRarityColor(
+                pokemon.rarity
+              )}`}
+            >
+              {pokemon.rarity}
+            </span>
+          </div>
+
+          {/* Level Badge on Image */}
+          <div className="absolute top-4 right-4 z-20">
+            <span className="px-4 py-2 rounded-full text-sm font-bold bg-yellow-500 text-black">
+              Level {pokemon.level}
+            </span>
+          </div>
         </div>
 
         {/* Pokémon Info */}
         <div className="flex-1 space-y-6">
           {/* Pokémon Info Panel */}
           <div className="bg-gray-800/60 p-6 rounded-2xl shadow-xl flex flex-col gap-5">
-            {/* Name + Rarity */}
+            {/* Name */}
             <div className="flex items-center gap-4">
-              <span
-                className={`text-3xl font-extrabold ${getRarityColor(
-                  pokemon.rarity
-                )}`}
-              >
-                {pokemon.rarity}
-              </span>
-              <h2 className="text-3xl font-bold tracking-wide">
+              <h2 className="text-4xl font-bold tracking-wide">
                 {pokemon.name}
               </h2>
             </div>
 
-            {/* Type + Token ID + Level */}
+            {/* Type + ID */}
             <div className="flex flex-wrap items-center gap-3">
               <span
                 className={`capitalize font-semibold px-3 py-1 rounded-md border ${
@@ -157,58 +265,129 @@ const PokemonDetailsPage: React.FC = () => {
                 {pokemon.type}
               </span>
               <span className="text-gray-400 font-mono px-2 py-1 rounded border border-white/10">
-                #{pokemon.tokenId}
-              </span>
-              <span className="inline-block bg-yellow-400 text-black font-bold px-3 py-1 rounded-full">
-                Lv. {pokemon.level}
+                {isGeneral
+                  ? `#${(pokemon as GeneratedPokemon).tempId.slice(0, 8)}...`
+                  : `#${(pokemon as MintedPokemon).tokenId}`}
               </span>
             </div>
 
-            <div className="flex items-center gap-4 mt-3">
-              {/* Price */}
-              <p className="text-yellow-400 font-bold text-xl flex items-center gap-2">
-                <FaEthereum /> {eth}{" "}
-                <span className="text-gray-400 text-sm font-normal">
-                  (~${usd})
-                </span>
-              </p>
+            {/* Price & Buy Section */}
+            <div className="flex items-center justify-between flex-wrap gap-4 mt-3 p-4 bg-black/30 rounded-lg">
+              <div>
+                <p className="text-gray-400 text-sm mb-1">Price</p>
+                <p className="text-yellow-400 font-bold text-2xl flex items-center gap-2">
+                  <FaEthereum /> {pokemon.ethPrice}
+                </p>
+                <span className="text-gray-400 text-sm">~${pokemon.price}</span>
+              </div>
 
-              {/* Buy Button */}
               <button
                 onClick={handleBuy}
-                className="inline-flex items-center gap-2 bg-gradient-to-r from-yellow-500 to-yellow-400 text-black font-bold py-2 px-5 rounded-xl shadow-md hover:from-yellow-600 hover:to-yellow-700 transition transform cursor-pointer"
+                disabled={buying}
+                className={`inline-flex items-center gap-2 ${
+                  buying
+                    ? "bg-gray-600 cursor-not-allowed"
+                    : "bg-gradient-to-r from-yellow-500 to-yellow-400 hover:from-yellow-600 hover:to-yellow-700"
+                } text-black font-bold py-3 px-6 rounded-xl shadow-md transition transform`}
               >
-                Buy Now
+                <FaShoppingCart />
+                {buying
+                  ? "Processing..."
+                  : isGeneral
+                  ? "Mint & Buy Now"
+                  : "Buy Now"}
               </button>
             </div>
+
+            {/* General Store Notice */}
+            {isGeneral && (
+              <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm">
+                <p className="text-yellow-400">
+                  💡 <strong>General Store:</strong> This Pokémon will be minted
+                  as an NFT when you purchase it. Includes +20% marketplace
+                  convenience fee.
+                </p>
+              </div>
+            )}
+
+            {/* Player Listing Info */}
+            {!isGeneral && (pokemon as MintedPokemon).seller && (
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
+                <p className="text-blue-400">
+                  👤 <strong>Seller:</strong>{" "}
+                  {(pokemon as MintedPokemon).seller.slice(0, 6)}...
+                  {(pokemon as MintedPokemon).seller.slice(-4)}
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Stats */}
-          <div
-            className={`bg-gray-800/60 p-6 rounded-2xl shadow-md grid grid-cols-2 sm:grid-cols-4 gap-6`}
-          >
-            {Object.entries(pokemon.stats)
-              .filter(
-                ([key]) => key !== "specialAttack" && key !== "specialDefense"
-              )
-              .map(([key, value]) => (
-                <div
-                  key={key}
-                  className="text-center p-3 rounded-lg bg-gray-900/50 border border-white/10"
-                >
-                  <p className="uppercase text-gray-400 text-sm tracking-wider font-medium">
-                    {key}
+          <div className="bg-gray-800/60 p-6 rounded-2xl shadow-md">
+            <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
+              📊 Base Stats
+            </h3>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-red-500/20 to-red-700/10 border border-red-500/30">
+                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                  HP
+                </p>
+                <p className="text-3xl font-extrabold text-red-400">
+                  {pokemon.stats.hp}
+                </p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-700/10 border border-orange-500/30">
+                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                  Attack
+                </p>
+                <p className="text-3xl font-extrabold text-orange-400">
+                  {pokemon.stats.attack}
+                </p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-700/10 border border-blue-500/30">
+                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                  Defense
+                </p>
+                <p className="text-3xl font-extrabold text-blue-400">
+                  {pokemon.stats.defense}
+                </p>
+              </div>
+              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-yellow-500/20 to-yellow-700/10 border border-yellow-500/30">
+                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                  Speed
+                </p>
+                <p className="text-3xl font-extrabold text-yellow-400">
+                  {pokemon.stats.speed}
+                </p>
+              </div>
+              {pokemon.stats.specialAttack && (
+                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-700/10 border border-purple-500/30">
+                  <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                    Sp. Atk
                   </p>
-                  <p className="text-2xl font-extrabold text-yellow-400">
-                    {value}
+                  <p className="text-3xl font-extrabold text-purple-400">
+                    {pokemon.stats.specialAttack}
                   </p>
                 </div>
-              ))}
+              )}
+              {pokemon.stats.specialDefense && (
+                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-green-500/20 to-green-700/10 border border-green-500/30">
+                  <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+                    Sp. Def
+                  </p>
+                  <p className="text-3xl font-extrabold text-green-400">
+                    {pokemon.stats.specialDefense}
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Moves Section */}
           <div>
-            <h3 className="text-2xl font-semibold mb-3">Moves</h3>
+            <h3 className="text-2xl font-semibold mb-4 flex items-center gap-2">
+              ⚔️ Move Set
+            </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
               {moves.length > 0 ? (
                 moves.map((move) => {
@@ -239,19 +418,15 @@ const PokemonDetailsPage: React.FC = () => {
                       Fighting: "bg-red-700",
                     }[type] || "bg-gray-500";
 
-                  const currentPP = move.pp;
-
                   return (
                     <div
                       key={move.name}
                       className={`relative border-2 ${typeColor} bg-gradient-to-b rounded-xl overflow-hidden hover:translate-y-[-2px] transition-transform duration-200 shadow-[0_4px_0_rgba(255,255,255,0.05)]`}
                     >
-                      {/* Colored Accent Bar */}
                       <div
                         className={`absolute top-0 left-0 w-1.5 h-full ${typeAccent}`}
                       ></div>
 
-                      {/* Move Header */}
                       <div className="px-4 py-2 bg-black/30 border-b border-white/10 flex justify-between items-center">
                         <span className="font-extrabold tracking-wide text-lg">
                           {move.name}
@@ -263,20 +438,19 @@ const PokemonDetailsPage: React.FC = () => {
                         </span>
                       </div>
 
-                      {/* Move Stats */}
                       <div className="px-4 py-3 font-mono text-sm text-gray-300 space-y-1">
                         <div className="flex justify-between">
-                          <span>⚔ Power</span>
-                          <span>{move.power}</span>
+                          <span>⚔️ Power</span>
+                          <span className="font-bold">{move.power}</span>
                         </div>
                         <div className="flex justify-between">
                           <span>🎯 Accuracy</span>
-                          <span>{move.accuracy}%</span>
+                          <span className="font-bold">{move.accuracy}%</span>
                         </div>
                         <div className="flex justify-between">
                           <span>🔋 PP</span>
-                          <span>
-                            {currentPP}/{move.pp}
+                          <span className="font-bold">
+                            {move.pp}/{move.pp}
                           </span>
                         </div>
                       </div>
@@ -284,7 +458,9 @@ const PokemonDetailsPage: React.FC = () => {
                   );
                 })
               ) : (
-                <p className="text-gray-400">No moves available</p>
+                <p className="text-gray-400 col-span-2">
+                  No moves available for this Pokémon
+                </p>
               )}
             </div>
           </div>
