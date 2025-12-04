@@ -12,6 +12,14 @@ import {
   FaUsers,
 } from "react-icons/fa";
 import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import {
   mintAndBuyPokemon,
   buyListedPokemon,
   checkNetwork,
@@ -105,6 +113,7 @@ const PokemonDetailsPage: React.FC = () => {
   };
 
   const [buying, setBuying] = useState(false);
+  const [showBuyModal, setShowBuyModal] = useState(false);
 
   if (!pokemon) {
     return (
@@ -117,25 +126,15 @@ const PokemonDetailsPage: React.FC = () => {
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
   const isGeneral = "tempId" in pokemon;
 
-  const handleBuy = async () => {
+  const handleBuyConfirm = async () => {
     try {
       setBuying(true);
       await checkNetwork();
 
       if (isGeneral) {
-        // Buy from general store (mint)
         const provider = new ethers.providers.Web3Provider(window.ethereum);
         const signer = provider.getSigner();
         const userAddress = await signer.getAddress();
-
-        const confirmed = window.confirm(
-          `Mint and buy ${pokemon.name} (${pokemon.rarity}) for Ξ ${pokemon.ethPrice} (~$${pokemon.price})?\n\nThis will create a blockchain transaction.`
-        );
-
-        if (!confirmed) {
-          setBuying(false);
-          return;
-        }
 
         const result = await mintAndBuyPokemon(
           userAddress,
@@ -152,16 +151,6 @@ const PokemonDetailsPage: React.FC = () => {
           navigate("/marketplace");
         }
       } else {
-        // Buy from player listing
-        const confirmed = window.confirm(
-          `Buy ${pokemon.name} for Ξ ${pokemon.ethPrice}?`
-        );
-
-        if (!confirmed) {
-          setBuying(false);
-          return;
-        }
-
         const result = await buyListedPokemon(
           (pokemon as MintedPokemon).tokenId,
           pokemon.ethPrice
@@ -177,6 +166,7 @@ const PokemonDetailsPage: React.FC = () => {
       alert(`❌ Purchase failed: ${error.message}`);
     } finally {
       setBuying(false);
+      setShowBuyModal(false);
     }
   };
 
@@ -216,14 +206,12 @@ const PokemonDetailsPage: React.FC = () => {
           ></div>
           <div className="absolute inset-0 bg-black/20"></div>
 
-          {/* Animated Sprite */}
           <img
             src={`https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/versions/generation-v/black-white/animated/${pokemon.id}.gif`}
             alt={pokemon.name}
             className="relative w-48 h-48 object-contain drop-shadow-2xl z-10"
           />
 
-          {/* Rarity Badge on Image */}
           <div className="absolute top-4 left-4 z-20">
             <span
               className={`px-4 py-2 rounded-full text-sm font-bold bg-black/70 ${getRarityColor(
@@ -234,7 +222,6 @@ const PokemonDetailsPage: React.FC = () => {
             </span>
           </div>
 
-          {/* Level Badge on Image */}
           <div className="absolute top-4 right-4 z-20">
             <span className="px-4 py-2 rounded-full text-sm font-bold bg-yellow-500 text-black">
               Level {pokemon.level}
@@ -244,16 +231,13 @@ const PokemonDetailsPage: React.FC = () => {
 
         {/* Pokémon Info */}
         <div className="flex-1 space-y-6">
-          {/* Pokémon Info Panel */}
           <div className="bg-gray-800/60 p-6 rounded-2xl shadow-xl flex flex-col gap-5">
-            {/* Name */}
             <div className="flex items-center gap-4">
               <h2 className="text-4xl font-bold tracking-wide">
                 {pokemon.name}
               </h2>
             </div>
 
-            {/* Type + ID */}
             <div className="flex flex-wrap items-center gap-3">
               <span
                 className={`capitalize font-semibold px-3 py-1 rounded-md border ${
@@ -271,7 +255,6 @@ const PokemonDetailsPage: React.FC = () => {
               </span>
             </div>
 
-            {/* Price & Buy Section */}
             <div className="flex items-center justify-between flex-wrap gap-4 mt-3 p-4 bg-black/30 rounded-lg">
               <div>
                 <p className="text-gray-400 text-sm mb-1">Price</p>
@@ -282,7 +265,7 @@ const PokemonDetailsPage: React.FC = () => {
               </div>
 
               <button
-                onClick={handleBuy}
+                onClick={() => setShowBuyModal(true)}
                 disabled={buying}
                 className={`inline-flex items-center gap-2 ${
                   buying
@@ -299,7 +282,6 @@ const PokemonDetailsPage: React.FC = () => {
               </button>
             </div>
 
-            {/* General Store Notice */}
             {isGeneral && (
               <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm">
                 <p className="text-yellow-400">
@@ -310,7 +292,6 @@ const PokemonDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {/* Player Listing Info */}
             {!isGeneral && (pokemon as MintedPokemon).seller && (
               <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
                 <p className="text-blue-400">
@@ -466,6 +447,77 @@ const PokemonDetailsPage: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* Buy Confirmation Modal */}
+      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+        <DialogContent className="bg-gray-900 border border-gray-700 text-white">
+          <DialogHeader>
+            <DialogTitle>Confirm Purchase</DialogTitle>
+          </DialogHeader>
+          <div className="py-4 space-y-4">
+            <div className="flex items-center gap-4">
+              <img
+                src={pokemon.image}
+                alt={pokemon.name}
+                className="w-20 h-20 object-contain"
+              />
+              <div>
+                <h3 className="text-xl font-bold">{pokemon.name}</h3>
+                <p className={`text-sm ${getRarityColor(pokemon.rarity)}`}>
+                  {pokemon.rarity}
+                </p>
+                <p className="text-sm text-gray-400">Level {pokemon.level}</p>
+              </div>
+            </div>
+
+            <div className="p-4 bg-black/30 rounded-lg space-y-2">
+              <div className="flex justify-between">
+                <span className="text-gray-400">Price:</span>
+                <span className="text-yellow-400 font-bold flex items-center gap-1">
+                  <FaEthereum /> {pokemon.ethPrice} (~${pokemon.price})
+                </span>
+              </div>
+              {isGeneral && (
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Type:</span>
+                  <span className="text-white">General Store (New Mint)</span>
+                </div>
+              )}
+              {!isGeneral && (pokemon as MintedPokemon).seller && (
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Seller:</span>
+                  <span className="text-white font-mono text-sm">
+                    {(pokemon as MintedPokemon).seller.slice(0, 6)}...
+                    {(pokemon as MintedPokemon).seller.slice(-4)}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <p className="text-sm text-gray-400">
+              {isGeneral
+                ? "This will create a blockchain transaction to mint this Pokémon NFT."
+                : "This will transfer the NFT to your wallet."}
+            </p>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowBuyModal(false)}
+              className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={handleBuyConfirm}
+              disabled={buying}
+              className="bg-yellow-500 text-black hover:bg-yellow-400 transition"
+            >
+              {buying ? "Processing..." : "Confirm Purchase"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

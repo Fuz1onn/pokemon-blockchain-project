@@ -16,6 +16,14 @@ import {
   FaTrophy,
   FaSyncAlt,
 } from "react-icons/fa";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import type {
   GeneratedPokemon,
   MintedPokemon,
@@ -152,6 +160,9 @@ const MarketplacePage: React.FC = () => {
     level: "All",
     price: "All",
   });
+  const [showBuyModal, setShowBuyModal] = useState(false);
+  const [selectedPokemon, setSelectedPokemon] =
+    useState<GeneratedPokemon | null>(null);
 
   // Get user address
   useEffect(() => {
@@ -166,7 +177,6 @@ const MarketplacePage: React.FC = () => {
         const savedRefreshData = localStorage.getItem(`refreshData_${address}`);
         if (savedRefreshData) {
           const data: RefreshData = JSON.parse(savedRefreshData);
-          // Reset if a day has passed
           if (Date.now() - data.lastReset >= REFRESH_INTERVAL) {
             setRefreshData({ count: 0, lastReset: Date.now() });
           } else {
@@ -209,6 +219,25 @@ const MarketplacePage: React.FC = () => {
     generateGeneralMarketplace();
   }, []);
 
+  // Auto-refresh at midnight UTC
+  useEffect(() => {
+    const checkAndRefresh = () => {
+      const now = Date.now();
+      const lastRefreshDate = new Date(lastRefresh);
+      const currentDate = new Date(now);
+
+      // Check if we've crossed midnight UTC
+      if (lastRefreshDate.getUTCDate() !== currentDate.getUTCDate()) {
+        generateGeneralMarketplace(true);
+      }
+    };
+
+    // Check every minute
+    const timer = setInterval(checkAndRefresh, 60000);
+
+    return () => clearInterval(timer);
+  }, [lastRefresh]);
+
   // Load player listings
   useEffect(() => {
     if (activeTab === "listings") {
@@ -225,18 +254,6 @@ const MarketplacePage: React.FC = () => {
       price: "All",
     });
   }, [activeTab]);
-
-  // Auto-refresh timer (every 24 hours)
-  useEffect(() => {
-    const timer = setInterval(() => {
-      const timeSinceRefresh = Date.now() - lastRefresh;
-      if (timeSinceRefresh >= REFRESH_INTERVAL) {
-        generateGeneralMarketplace(true); // Auto refresh doesn't count toward limit
-      }
-    }, 60000);
-
-    return () => clearInterval(timer);
-  }, [lastRefresh]);
 
   const createMetadataUri = (
     pokemonData: any,
@@ -364,7 +381,6 @@ const MarketplacePage: React.FC = () => {
     const timeSinceReset = Date.now() - purchaseData.lastReset;
 
     if (timeSinceReset >= REFRESH_INTERVAL) {
-      // Reset if a day has passed
       const newData = { count: 0, lastReset: Date.now() };
       setPurchaseData(newData);
       if (userAddress) {
@@ -391,7 +407,6 @@ const MarketplacePage: React.FC = () => {
 
   const handleBuyFromGeneral = async (pokemon: GeneratedPokemon) => {
     try {
-      // Check purchase limit
       const purchaseCheck = canPurchase();
       if (!purchaseCheck.canPurchase) {
         alert(`❌ ${purchaseCheck.reason}`);
@@ -405,19 +420,6 @@ const MarketplacePage: React.FC = () => {
       const signer = provider.getSigner();
       const address = await signer.getAddress();
 
-      const confirmed = window.confirm(
-        `Mint and buy ${pokemon.name} (${pokemon.rarity}) for Ξ ${
-          pokemon.ethPrice
-        } (~$${pokemon.price})?\n\n⚠️ Purchases remaining today: ${
-          MAX_DAILY_PURCHASES - purchaseData.count
-        }/${MAX_DAILY_PURCHASES}\n\nThis will create a blockchain transaction.`
-      );
-
-      if (!confirmed) {
-        setBuyingId(null);
-        return;
-      }
-
       const result = await mintAndBuyPokemon(
         address,
         pokemon.metadataUri!,
@@ -425,7 +427,6 @@ const MarketplacePage: React.FC = () => {
       );
 
       if (result.success) {
-        // Increment purchase counter
         const newPurchaseData = {
           count: purchaseData.count + 1,
           lastReset: purchaseData.lastReset,
@@ -456,6 +457,8 @@ const MarketplacePage: React.FC = () => {
       alert(`❌ Purchase failed: ${error.message}`);
     } finally {
       setBuyingId(null);
+      setShowBuyModal(false);
+      setSelectedPokemon(null);
     }
   };
 
@@ -490,18 +493,14 @@ const MarketplacePage: React.FC = () => {
   const handleCardClick = (pokemon: GeneratedPokemon | MintedPokemon) => {
     navigate(
       `/marketplace/${"tempId" in pokemon ? pokemon.tempId : pokemon.tokenId}`,
-      {
-        state: { pokemon, source: activeTab },
-      }
+      { state: { pokemon, source: activeTab } }
     );
   };
 
   const handleForceRefresh = () => {
-    // Check if user can refresh
     const timeSinceReset = Date.now() - refreshData.lastReset;
 
     if (timeSinceReset >= REFRESH_INTERVAL) {
-      // Reset counter if a day has passed
       setRefreshData({ count: 0, lastReset: Date.now() });
       generateGeneralMarketplace();
       return;
@@ -517,18 +516,23 @@ const MarketplacePage: React.FC = () => {
       return;
     }
 
-    const confirmed = window.confirm(
-      `Force refresh the marketplace?\n\nRefreshes used today: ${refreshData.count}/${MAX_DAILY_REFRESHES}\n\nThis will load new Pokémon.`
-    );
-
-    if (confirmed) {
-      generateGeneralMarketplace();
-    }
+    generateGeneralMarketplace();
   };
 
   const getTimeUntilRefresh = () => {
-    const timeElapsed = Date.now() - lastRefresh;
-    const timeRemaining = REFRESH_INTERVAL - timeElapsed;
+    const now = new Date();
+    const nextMidnight = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate() + 1,
+        0,
+        0,
+        0,
+        0
+      )
+    );
+    const timeRemaining = nextMidnight.getTime() - now.getTime();
 
     const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
     const minutes = Math.floor(
@@ -538,7 +542,6 @@ const MarketplacePage: React.FC = () => {
     return `${hours}h ${minutes}m`;
   };
 
-  // Apply filters
   const filterPokemons = (pokemons: (GeneratedPokemon | MintedPokemon)[]) => {
     return pokemons.filter((p) => {
       const { type, rarity, level, price } = filters;
@@ -568,10 +571,8 @@ const MarketplacePage: React.FC = () => {
 
   const filteredGeneral = filterPokemons(generalPokemons);
   const filteredListings = filterPokemons(playerListings);
-
   const displayPokemons =
     activeTab === "general" ? filteredGeneral : filteredListings;
-
   const canRefresh = refreshData.count < MAX_DAILY_REFRESHES;
 
   return (
@@ -758,7 +759,6 @@ const MarketplacePage: React.FC = () => {
           </div>
         </div>
       ) : (
-        /* Pokémon Grid */
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
           {displayPokemons.map((pokemon) => {
             const isBuying =
@@ -857,9 +857,12 @@ const MarketplacePage: React.FC = () => {
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
-                        isGeneral
-                          ? handleBuyFromGeneral(pokemon as GeneratedPokemon)
-                          : handleBuyFromListing(pokemon as MintedPokemon);
+                        if (isGeneral) {
+                          setSelectedPokemon(pokemon as GeneratedPokemon);
+                          setShowBuyModal(true);
+                        } else {
+                          handleBuyFromListing(pokemon as MintedPokemon);
+                        }
                       }}
                       disabled={isBuying}
                       className={`w-full ${
@@ -908,6 +911,82 @@ const MarketplacePage: React.FC = () => {
             </button>
           </div>
         )}
+
+      {/* Buy Confirmation Modal */}
+      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+        <DialogContent className="bg-gray-900 border border-gray-700 text-white">
+          <DialogHeader>
+            <DialogTitle>Confirm Purchase</DialogTitle>
+          </DialogHeader>
+          {selectedPokemon && (
+            <div className="py-4 space-y-4">
+              <div className="flex items-center gap-4">
+                <img
+                  src={selectedPokemon.image}
+                  alt={selectedPokemon.name}
+                  className="w-20 h-20 object-contain"
+                />
+                <div>
+                  <h3 className="text-xl font-bold">{selectedPokemon.name}</h3>
+                  <p
+                    className={`text-sm ${getRarityColor(
+                      selectedPokemon.rarity
+                    )}`}
+                  >
+                    {selectedPokemon.rarity}
+                  </p>
+                  <p className="text-sm text-gray-400">
+                    Level {selectedPokemon.level}
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-4 bg-black/30 rounded-lg space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Price:</span>
+                  <span className="text-yellow-400 font-bold flex items-center gap-1">
+                    <FaEthereum /> {selectedPokemon.ethPrice} (~$
+                    {selectedPokemon.price})
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Purchases Today:</span>
+                  <span className="text-white font-semibold">
+                    {MAX_DAILY_PURCHASES - purchaseData.count}/
+                    {MAX_DAILY_PURCHASES}
+                  </span>
+                </div>
+              </div>
+
+              <p className="text-sm text-gray-400">
+                This will create a blockchain transaction to mint this Pokémon
+                NFT.
+              </p>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowBuyModal(false);
+                setSelectedPokemon(null);
+              }}
+              className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
+            >
+              Cancel
+            </Button>
+            <Button
+              onClick={() =>
+                selectedPokemon && handleBuyFromGeneral(selectedPokemon)
+              }
+              disabled={buyingId !== null}
+              className="bg-yellow-500 text-black hover:bg-yellow-400 transition"
+            >
+              {buyingId !== null ? "Processing..." : "Confirm Purchase"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };
