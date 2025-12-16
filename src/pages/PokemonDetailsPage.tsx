@@ -8,7 +8,7 @@ import {
   FaEthereum,
   FaArrowLeft,
   FaShoppingCart,
-  FaStore,
+  FaBolt,
   FaUsers,
 } from "react-icons/fa";
 import {
@@ -124,14 +124,14 @@ const PokemonDetailsPage: React.FC = () => {
   }
 
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
-  const isGeneral = "tempId" in pokemon;
+  const isDailyDrop = "tempId" in pokemon;
 
   const handleBuyConfirm = async () => {
     try {
       setBuying(true);
       await checkNetwork();
 
-      if (isGeneral) {
+      if (isDailyDrop) {
         const provider = new ethers.providers.Web3Provider(window.ethereum);
         const signer = provider.getSigner();
         const userAddress = await signer.getAddress();
@@ -186,13 +186,13 @@ const PokemonDetailsPage: React.FC = () => {
 
       {/* Source Badge */}
       <div className="mb-4 flex items-center gap-2">
-        {isGeneral ? (
+        {isDailyDrop ? (
           <span className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm font-semibold">
-            <FaStore /> General Store • Starter Pokémon
+            <FaBolt /> Daily Drop • Fresh Stock
           </span>
         ) : (
           <span className="inline-flex items-center gap-2 px-4 py-2 bg-blue-500/20 border border-blue-500/50 rounded-lg text-blue-400 text-sm font-semibold">
-            <FaUsers /> Player Listing • Trained Pokémon
+            <FaUsers /> Community Market • Player Owned
           </span>
         )}
       </div>
@@ -249,7 +249,7 @@ const PokemonDetailsPage: React.FC = () => {
                 {pokemon.type}
               </span>
               <span className="text-gray-400 font-mono px-2 py-1 rounded border border-white/10">
-                {isGeneral
+                {isDailyDrop
                   ? `#${(pokemon as GeneratedPokemon).tempId.slice(0, 8)}...`
                   : `#${(pokemon as MintedPokemon).tokenId}`}
               </span>
@@ -276,23 +276,23 @@ const PokemonDetailsPage: React.FC = () => {
                 <FaShoppingCart />
                 {buying
                   ? "Processing..."
-                  : isGeneral
+                  : isDailyDrop
                   ? "Mint & Buy Now"
                   : "Buy Now"}
               </button>
             </div>
 
-            {isGeneral && (
+            {isDailyDrop && (
               <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm">
                 <p className="text-yellow-400">
-                  💡 <strong>General Store:</strong> This Pokémon will be minted
-                  as an NFT when you purchase it. Includes +20% marketplace
+                  💡 <strong>Daily Drop:</strong> This Pokémon will be minted as
+                  an NFT when you purchase it. Includes +20% marketplace
                   convenience fee.
                 </p>
               </div>
             )}
 
-            {!isGeneral && (pokemon as MintedPokemon).seller && (
+            {!isDailyDrop && (pokemon as MintedPokemon).seller && (
               <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
                 <p className="text-blue-400">
                   👤 <strong>Seller:</strong>{" "}
@@ -472,18 +472,24 @@ const PokemonDetailsPage: React.FC = () => {
 
             <div className="p-4 bg-black/30 rounded-lg space-y-2">
               <div className="flex justify-between">
+                <span className="text-gray-400">Source:</span>
+                {isDailyDrop ? (
+                  <span className="text-yellow-400 font-semibold flex items-center gap-1">
+                    <FaBolt /> Daily Drop
+                  </span>
+                ) : (
+                  <span className="text-blue-400 font-semibold flex items-center gap-1">
+                    <FaUsers /> Community Market
+                  </span>
+                )}
+              </div>
+              <div className="flex justify-between">
                 <span className="text-gray-400">Price:</span>
                 <span className="text-yellow-400 font-bold flex items-center gap-1">
                   <FaEthereum /> {pokemon.ethPrice} (~${pokemon.price})
                 </span>
               </div>
-              {isGeneral && (
-                <div className="flex justify-between">
-                  <span className="text-gray-400">Type:</span>
-                  <span className="text-white">General Store (New Mint)</span>
-                </div>
-              )}
-              {!isGeneral && (pokemon as MintedPokemon).seller && (
+              {!isDailyDrop && (pokemon as MintedPokemon).seller && (
                 <div className="flex justify-between">
                   <span className="text-gray-400">Seller:</span>
                   <span className="text-white font-mono text-sm">
@@ -495,7 +501,7 @@ const PokemonDetailsPage: React.FC = () => {
             </div>
 
             <p className="text-sm text-gray-400">
-              {isGeneral
+              {isDailyDrop
                 ? "This will create a blockchain transaction to mint this Pokémon NFT."
                 : "This will transfer the NFT to your wallet."}
             </p>
