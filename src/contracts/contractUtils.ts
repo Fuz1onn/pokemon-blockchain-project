@@ -1,7 +1,7 @@
 import { ethers } from "ethers";
 import contractAddress from "./contract-address.json";
 
-const CONTRACT_ABI = [
+export const CONTRACT_ABI = [
   "function mintPokemon(address to, string memory uri) public returns (uint256)",
   "function listPokemon(uint256 tokenId, uint256 price) public",
   "function buyPokemon(uint256 tokenId) public payable",

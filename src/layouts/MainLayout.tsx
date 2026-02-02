@@ -13,14 +13,33 @@ import { Input } from "@/components/ui/input";
 
 interface MainLayoutProps {
   account: string;
-  leelasBalance: number;
+  leelasBalance: number; // on-chain wallet balance
+  leelasPending: number; // off-chain pending balance
+  onWithdrawLeelas: () => Promise<void> | void;
   onLogout: () => void;
   children: React.ReactNode;
+}
+
+const COOLDOWN_MS = 24 * 60 * 60 * 1000;
+
+function cooldownKey(address: string) {
+  return `pokemon-arena:withdraw:last:${address.toLowerCase()}`;
+}
+
+function formatCountdown(ms: number) {
+  const totalSec = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${h}:${pad(m)}:${pad(s)}`;
 }
 
 const MainLayout: React.FC<MainLayoutProps> = ({
   account,
   leelasBalance,
+  leelasPending,
+  onWithdrawLeelas,
   onLogout,
   children,
 }) => {
@@ -28,11 +47,76 @@ const MainLayout: React.FC<MainLayoutProps> = ({
   const [isEditing, setIsEditing] = React.useState(false);
   const [tempName, setTempName] = React.useState("");
 
+  const [withdrawing, setWithdrawing] = React.useState(false);
+  const [withdrawError, setWithdrawError] = React.useState<string | null>(null);
+
+  // ---- cooldown state (localStorage) ----
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  const lastWithdrawAt = React.useMemo(() => {
+    if (!account) return null;
+    const raw = localStorage.getItem(cooldownKey(account));
+    if (!raw) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }, [account, now]); // include now to refresh if storage was updated elsewhere
+
+  const cooldownRemainingMs = React.useMemo(() => {
+    if (!lastWithdrawAt) return 0;
+    const end = lastWithdrawAt + COOLDOWN_MS;
+    return Math.max(0, end - now);
+  }, [lastWithdrawAt, now]);
+
+  const isCoolingDown = cooldownRemainingMs > 0;
+  const cooldownText = formatCountdown(cooldownRemainingMs);
+
   const shortenAddress = (address: string) =>
     `${address.slice(0, 6)}...${address.slice(-4)}`;
 
+  async function handleWithdraw() {
+    if (withdrawing) return;
+    if (!account) return;
+    if (leelasPending <= 0) return;
+    if (isCoolingDown) return;
+
+    setWithdrawError(null);
+    setWithdrawing(true);
+
+    try {
+      await onWithdrawLeelas();
+
+      // ✅ only set cooldown AFTER successful withdraw
+      localStorage.setItem(cooldownKey(account), String(Date.now()));
+    } catch (e: any) {
+      setWithdrawError(
+        typeof e?.message === "string" ? e.message : "Withdraw failed",
+      );
+    } finally {
+      setWithdrawing(false);
+    }
+  }
+
+  const withdrawDisabled = leelasPending <= 0 || withdrawing || isCoolingDown;
+
+  const withdrawTitle =
+    leelasPending <= 0
+      ? "No pending rewards to withdraw"
+      : isCoolingDown
+        ? `Withdraw available in ${cooldownText}`
+        : "Withdraw pending Leelas to your wallet";
+
+  const withdrawLabel = withdrawing
+    ? "Withdrawing..."
+    : isCoolingDown
+      ? `Available in ${cooldownText}`
+      : "Withdraw";
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
+    <div className="min-h-screen bg-linear-to-b from-gray-900 to-black text-white p-6">
       {/* Header */}
       <div className="flex justify-between items-center mb-6">
         {/* Left: Wallet info + Profile Name */}
@@ -48,7 +132,37 @@ const MainLayout: React.FC<MainLayoutProps> = ({
               <Pencil size={18} />
             </button>
           </div>
-          <p className="text-sm text-gray-400 mt-1">Leelas: {leelasBalance}</p>
+
+          {/* Leelas balances */}
+          <div className="mt-1 flex items-center gap-3 text-sm text-gray-400">
+            <span>Leelas (Wallet): {leelasBalance}</span>
+            <span className="text-gray-600">•</span>
+            <span>
+              Pending:{" "}
+              <span
+                className={
+                  leelasPending > 0 ? "text-green-300 font-semibold" : ""
+                }
+              >
+                {leelasPending}
+              </span>
+            </span>
+
+            <Button
+              onClick={handleWithdraw}
+              disabled={withdrawDisabled}
+              className="ml-2 h-8 rounded-lg bg-yellow-500 px-3 text-sm font-bold text-gray-900 hover:bg-yellow-400 disabled:bg-gray-700 disabled:text-gray-300"
+              title={withdrawTitle}
+            >
+              {withdrawLabel}
+            </Button>
+          </div>
+
+          {withdrawError ? (
+            <p className="mt-1 text-xs text-red-300 max-w-[420px] wrap-break-word">
+              {withdrawError}
+            </p>
+          ) : null}
         </div>
 
         {/* Middle: Navigation */}
