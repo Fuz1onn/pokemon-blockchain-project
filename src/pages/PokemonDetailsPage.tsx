@@ -61,8 +61,8 @@ interface MintedPokemon {
   level: number;
   timestamp: number;
   stats: Stats;
-  seller: string;
-  isListed: boolean;
+  seller?: string;
+  isListed?: boolean;
 }
 
 const typeColors: Record<string, string> = {
@@ -104,12 +104,32 @@ const getRarityColor = (rarity: string) => {
   }
 };
 
+const StatCard = ({
+  label,
+  value,
+  color,
+}: {
+  label: string;
+  value: number | string;
+  color: string;
+}) => (
+  <div
+    className={`text-center p-4 rounded-lg bg-gradient-to-br from-${color}-500/20 to-${color}-700/10 border border-${color}-500/30`}
+  >
+    <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
+      {label}
+    </p>
+    <p className={`text-3xl font-extrabold text-${color}-400`}>{value}</p>
+  </div>
+);
+
 const PokemonDetailsPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+
   const { pokemon, source } = location.state as {
     pokemon: GeneratedPokemon | MintedPokemon;
-    source: "general" | "listings";
+    source: "daily-drop" | "community" | "owned";
   };
 
   const [buying, setBuying] = useState(false);
@@ -124,7 +144,10 @@ const PokemonDetailsPage: React.FC = () => {
   }
 
   const moves: Move[] = pokemonSkills[pokemon.name] || [];
-  const isDailyDrop = "tempId" in pokemon;
+
+  const isOwnedView = source === "owned";
+  const isDailyDrop = "tempId" in pokemon && !isOwnedView;
+  const isCommunityListing = !isDailyDrop && !isOwnedView;
 
   const handleBuyConfirm = async () => {
     try {
@@ -150,7 +173,7 @@ const PokemonDetailsPage: React.FC = () => {
           );
           navigate("/marketplace");
         }
-      } else {
+      } else if (isCommunityListing) {
         const result = await buyListedPokemon(
           (pokemon as MintedPokemon).tokenId,
           pokemon.ethPrice
@@ -181,12 +204,16 @@ const PokemonDetailsPage: React.FC = () => {
         className="mb-6 px-4 py-2 bg-gray-800 rounded-lg hover:bg-gray-700 transition flex items-center gap-2"
       >
         <FaArrowLeft />
-        Back to Marketplace
+        {isOwnedView ? "Back to My Pokémon" : "Back to Marketplace"}
       </button>
 
       {/* Source Badge */}
       <div className="mb-4 flex items-center gap-2">
-        {isDailyDrop ? (
+        {isOwnedView ? (
+          <span className="inline-flex items-center gap-2 px-4 py-2 bg-green-600/20 border border-green-500/50 rounded-lg text-green-400 text-sm font-semibold">
+            <FaUsers /> Your Collection
+          </span>
+        ) : isDailyDrop ? (
           <span className="inline-flex items-center gap-2 px-4 py-2 bg-yellow-500/20 border border-yellow-500/50 rounded-lg text-yellow-400 text-sm font-semibold">
             <FaBolt /> Daily Drop • Fresh Stock
           </span>
@@ -249,40 +276,44 @@ const PokemonDetailsPage: React.FC = () => {
                 {pokemon.type}
               </span>
               <span className="text-gray-400 font-mono px-2 py-1 rounded border border-white/10">
-                {isDailyDrop
-                  ? `#${(pokemon as GeneratedPokemon).tempId.slice(0, 8)}...`
-                  : `#${(pokemon as MintedPokemon).tokenId}`}
+                {isOwnedView || isCommunityListing
+                  ? `#${(pokemon as MintedPokemon).tokenId}`
+                  : `#${(pokemon as GeneratedPokemon).tempId.slice(0, 8)}...`}
               </span>
             </div>
 
-            <div className="flex items-center justify-between flex-wrap gap-4 mt-3 p-4 bg-black/30 rounded-lg">
-              <div>
-                <p className="text-gray-400 text-sm mb-1">Price</p>
-                <p className="text-yellow-400 font-bold text-2xl flex items-center gap-2">
-                  <FaEthereum /> {pokemon.ethPrice}
-                </p>
-                <span className="text-gray-400 text-sm">~${pokemon.price}</span>
+            {!isOwnedView && (
+              <div className="flex items-center justify-between flex-wrap gap-4 mt-3 p-4 bg-black/30 rounded-lg">
+                <div>
+                  <p className="text-gray-400 text-sm mb-1">Price</p>
+                  <p className="text-yellow-400 font-bold text-2xl flex items-center gap-2">
+                    <FaEthereum /> {pokemon.ethPrice}
+                  </p>
+                  <span className="text-gray-400 text-sm">
+                    ~${pokemon.price}
+                  </span>
+                </div>
+
+                <button
+                  onClick={() => setShowBuyModal(true)}
+                  disabled={buying}
+                  className={`inline-flex items-center gap-2 ${
+                    buying
+                      ? "bg-gray-600 cursor-not-allowed"
+                      : "bg-gradient-to-r from-yellow-500 to-yellow-400 hover:from-yellow-600 hover:to-yellow-700"
+                  } text-black font-bold py-3 px-6 rounded-xl shadow-md transition transform`}
+                >
+                  <FaShoppingCart />
+                  {buying
+                    ? "Processing..."
+                    : isDailyDrop
+                    ? "Mint & Buy Now"
+                    : "Buy Now"}
+                </button>
               </div>
+            )}
 
-              <button
-                onClick={() => setShowBuyModal(true)}
-                disabled={buying}
-                className={`inline-flex items-center gap-2 ${
-                  buying
-                    ? "bg-gray-600 cursor-not-allowed"
-                    : "bg-gradient-to-r from-yellow-500 to-yellow-400 hover:from-yellow-600 hover:to-yellow-700"
-                } text-black font-bold py-3 px-6 rounded-xl shadow-md transition transform`}
-              >
-                <FaShoppingCart />
-                {buying
-                  ? "Processing..."
-                  : isDailyDrop
-                  ? "Mint & Buy Now"
-                  : "Buy Now"}
-              </button>
-            </div>
-
-            {isDailyDrop && (
+            {!isOwnedView && isDailyDrop && (
               <div className="p-3 bg-yellow-500/10 border border-yellow-500/30 rounded-lg text-sm">
                 <p className="text-yellow-400">
                   💡 <strong>Daily Drop:</strong> This Pokémon will be minted as
@@ -292,14 +323,25 @@ const PokemonDetailsPage: React.FC = () => {
               </div>
             )}
 
-            {!isDailyDrop && (pokemon as MintedPokemon).seller && (
-              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
-                <p className="text-blue-400">
-                  👤 <strong>Seller:</strong>{" "}
-                  {(pokemon as MintedPokemon).seller.slice(0, 6)}...
-                  {(pokemon as MintedPokemon).seller.slice(-4)}
-                </p>
-              </div>
+            {!isOwnedView && isCommunityListing && (
+              <>
+                {(() => {
+                  const minted = pokemon as MintedPokemon;
+                  if (!minted.seller) return null;
+
+                  return (
+                    <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-sm">
+                      <p className="text-blue-400">
+                        👤 <strong>Seller:</strong>{" "}
+                        <span className="font-mono">
+                          {minted.seller.slice(0, 6)}...
+                          {minted.seller.slice(-4)}
+                        </span>
+                      </p>
+                    </div>
+                  );
+                })()}
+              </>
             )}
           </div>
 
@@ -309,57 +351,39 @@ const PokemonDetailsPage: React.FC = () => {
               📊 Base Stats
             </h3>
             <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
-              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-red-500/20 to-red-700/10 border border-red-500/30">
-                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                  HP
-                </p>
-                <p className="text-3xl font-extrabold text-red-400">
-                  {pokemon.stats.hp}
-                </p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-orange-500/20 to-orange-700/10 border border-orange-500/30">
-                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                  Attack
-                </p>
-                <p className="text-3xl font-extrabold text-orange-400">
-                  {pokemon.stats.attack}
-                </p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-blue-500/20 to-blue-700/10 border border-blue-500/30">
-                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                  Defense
-                </p>
-                <p className="text-3xl font-extrabold text-blue-400">
-                  {pokemon.stats.defense}
-                </p>
-              </div>
-              <div className="text-center p-4 rounded-lg bg-gradient-to-br from-yellow-500/20 to-yellow-700/10 border border-yellow-500/30">
-                <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                  Speed
-                </p>
-                <p className="text-3xl font-extrabold text-yellow-400">
-                  {pokemon.stats.speed}
-                </p>
-              </div>
+              <StatCard
+                label="HP"
+                value={pokemon.stats.hp ?? "—"}
+                color="red"
+              />
+              <StatCard
+                label="Attack"
+                value={pokemon.stats.attack ?? "—"}
+                color="orange"
+              />
+              <StatCard
+                label="Defense"
+                value={pokemon.stats.defense ?? "—"}
+                color="blue"
+              />
+              <StatCard
+                label="Speed"
+                value={pokemon.stats.speed ?? "—"}
+                color="yellow"
+              />
               {pokemon.stats.specialAttack && (
-                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-purple-500/20 to-purple-700/10 border border-purple-500/30">
-                  <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                    Sp. Atk
-                  </p>
-                  <p className="text-3xl font-extrabold text-purple-400">
-                    {pokemon.stats.specialAttack}
-                  </p>
-                </div>
+                <StatCard
+                  label="Sp. Atk"
+                  value={pokemon.stats.specialAttack}
+                  color="purple"
+                />
               )}
               {pokemon.stats.specialDefense && (
-                <div className="text-center p-4 rounded-lg bg-gradient-to-br from-green-500/20 to-green-700/10 border border-green-500/30">
-                  <p className="uppercase text-gray-400 text-xs tracking-wider font-medium mb-1">
-                    Sp. Def
-                  </p>
-                  <p className="text-3xl font-extrabold text-green-400">
-                    {pokemon.stats.specialDefense}
-                  </p>
-                </div>
+                <StatCard
+                  label="Sp. Def"
+                  value={pokemon.stats.specialDefense}
+                  color="green"
+                />
               )}
             </div>
           </div>
@@ -449,81 +473,90 @@ const PokemonDetailsPage: React.FC = () => {
       </div>
 
       {/* Buy Confirmation Modal */}
-      <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
-        <DialogContent className="bg-gray-900 border border-gray-700 text-white">
-          <DialogHeader>
-            <DialogTitle>Confirm Purchase</DialogTitle>
-          </DialogHeader>
-          <div className="py-4 space-y-4">
-            <div className="flex items-center gap-4">
-              <img
-                src={pokemon.image}
-                alt={pokemon.name}
-                className="w-20 h-20 object-contain"
-              />
-              <div>
-                <h3 className="text-xl font-bold">{pokemon.name}</h3>
-                <p className={`text-sm ${getRarityColor(pokemon.rarity)}`}>
-                  {pokemon.rarity}
-                </p>
-                <p className="text-sm text-gray-400">Level {pokemon.level}</p>
+      {!isOwnedView && (
+        <Dialog open={showBuyModal} onOpenChange={setShowBuyModal}>
+          <DialogContent className="bg-gray-900 border border-gray-700 text-white">
+            <DialogHeader>
+              <DialogTitle>Confirm Purchase</DialogTitle>
+            </DialogHeader>
+            <div className="py-4 space-y-4">
+              <div className="flex items-center gap-4">
+                <img
+                  src={pokemon.image}
+                  alt={pokemon.name}
+                  className="w-20 h-20 object-contain"
+                />
+                <div>
+                  <h3 className="text-xl font-bold">{pokemon.name}</h3>
+                  <p className={`text-sm ${getRarityColor(pokemon.rarity)}`}>
+                    {pokemon.rarity}
+                  </p>
+                  <p className="text-sm text-gray-400">Level {pokemon.level}</p>
+                </div>
               </div>
-            </div>
 
-            <div className="p-4 bg-black/30 rounded-lg space-y-2">
-              <div className="flex justify-between">
-                <span className="text-gray-400">Source:</span>
-                {isDailyDrop ? (
-                  <span className="text-yellow-400 font-semibold flex items-center gap-1">
-                    <FaBolt /> Daily Drop
-                  </span>
-                ) : (
-                  <span className="text-blue-400 font-semibold flex items-center gap-1">
-                    <FaUsers /> Community Market
-                  </span>
-                )}
-              </div>
-              <div className="flex justify-between">
-                <span className="text-gray-400">Price:</span>
-                <span className="text-yellow-400 font-bold flex items-center gap-1">
-                  <FaEthereum /> {pokemon.ethPrice} (~${pokemon.price})
-                </span>
-              </div>
-              {!isDailyDrop && (pokemon as MintedPokemon).seller && (
+              <div className="p-4 bg-black/30 rounded-lg space-y-2">
                 <div className="flex justify-between">
-                  <span className="text-gray-400">Seller:</span>
-                  <span className="text-white font-mono text-sm">
-                    {(pokemon as MintedPokemon).seller.slice(0, 6)}...
-                    {(pokemon as MintedPokemon).seller.slice(-4)}
+                  <span className="text-gray-400">Source:</span>
+                  {isDailyDrop ? (
+                    <span className="text-yellow-400 font-semibold flex items-center gap-1">
+                      <FaBolt /> Daily Drop
+                    </span>
+                  ) : (
+                    <span className="text-blue-400 font-semibold flex items-center gap-1">
+                      <FaUsers /> Community Market
+                    </span>
+                  )}
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-gray-400">Price:</span>
+                  <span className="text-yellow-400 font-bold flex items-center gap-1">
+                    <FaEthereum /> {pokemon.ethPrice} (~${pokemon.price})
                   </span>
                 </div>
-              )}
-            </div>
+                {isCommunityListing && (
+                  <>
+                    {(() => {
+                      const p = pokemon as MintedPokemon;
+                      if (!p.seller) return null;
+                      return (
+                        <div className="flex justify-between">
+                          <span className="text-gray-400">Seller:</span>
+                          <span className="text-white font-mono text-sm">
+                            {p.seller.slice(0, 6)}...{p.seller.slice(-4)}
+                          </span>
+                        </div>
+                      );
+                    })()}
+                  </>
+                )}
+              </div>
 
-            <p className="text-sm text-gray-400">
-              {isDailyDrop
-                ? "This will create a blockchain transaction to mint this Pokémon NFT."
-                : "This will transfer the NFT to your wallet."}
-            </p>
-          </div>
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setShowBuyModal(false)}
-              className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={handleBuyConfirm}
-              disabled={buying}
-              className="bg-yellow-500 text-black hover:bg-yellow-400 transition"
-            >
-              {buying ? "Processing..." : "Confirm Purchase"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              <p className="text-sm text-gray-400">
+                {isDailyDrop
+                  ? "This will create a blockchain transaction to mint this Pokémon NFT."
+                  : "This will transfer the NFT to your wallet."}
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                variant="outline"
+                onClick={() => setShowBuyModal(false)}
+                className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleBuyConfirm}
+                disabled={buying}
+                className="bg-yellow-500 text-black hover:bg-yellow-400 transition"
+              >
+                {buying ? "Processing..." : "Confirm Purchase"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
     </div>
   );
 };

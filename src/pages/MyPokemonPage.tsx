@@ -1,8 +1,29 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { ethers } from "ethers";
-import { FaEthereum, FaBolt, FaUsers } from "react-icons/fa";
+import {
+  FaEthereum,
+  FaBolt,
+  FaUsers,
+  FaSyncAlt,
+  FaTag,
+  FaEdit,
+  FaTimes,
+} from "react-icons/fa";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 import contractAddress from "../contracts/contract-address.json";
+import {
+  listPokemon,
+  cancelListing,
+  getListing,
+} from "../contracts/contractUtils";
 
 interface Stats {
   hp: number;
@@ -85,6 +106,28 @@ const MyPokemonPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Listing status per tokenId
+  const [listingStatuses, setListingStatuses] = useState<
+    Record<
+      number,
+      {
+        priceEth: string;
+        isListed: boolean;
+      }
+    >
+  >({});
+
+  // Modal state
+  const [selectedTokenForListing, setSelectedTokenForListing] = useState<
+    number | null
+  >(null);
+  const [listingPriceEth, setListingPriceEth] = useState<string>("");
+  const [isProcessingListing, setIsProcessingListing] = useState(false);
+  const [listingActionError, setListingActionError] = useState<string | null>(
+    null
+  );
+  const [showListingModal, setShowListingModal] = useState(false);
+
   const loadOwnedPokemons = async () => {
     setLoading(true);
     setError(null);
@@ -106,13 +149,8 @@ const MyPokemonPage: React.FC = () => {
         provider
       );
 
-      // Get balance of NFTs owned by user
       const balance = await contract.balanceOf(address);
       const balanceNumber = balance.toNumber();
-
-      console.log(`✅ Connected to contract: ${contractAddress.address}`);
-      console.log(`✅ Your address: ${address}`);
-      console.log(`✅ You own ${balanceNumber} Pokémon NFTs`);
 
       if (balanceNumber === 0) {
         setOwnedPokemons([]);
@@ -120,61 +158,29 @@ const MyPokemonPage: React.FC = () => {
         return;
       }
 
-      // Get PokemonMinted events to find token IDs
-      console.log("🔍 Fetching PokemonMinted events...");
       const filter = contract.filters.PokemonMinted(null, address);
       const events = await contract.queryFilter(filter);
 
-      console.log(`📋 Found ${events.length} mint events for your address`);
-
-      if (events.length === 0) {
-        setOwnedPokemons([]);
-        setLoading(false);
-        return;
-      }
-
-      // Fetch metadata for each token you own
       const pokemonPromises = events.map(async (event) => {
         try {
           const tokenId = event.args?.tokenId?.toNumber();
-          console.log(`🔍 Processing Token ID: ${tokenId}`);
 
-          // Verify you still own this token (CRITICAL CHECK)
-          try {
-            const owner = await contract.ownerOf(tokenId);
-            if (owner.toLowerCase() !== address.toLowerCase()) {
-              console.log(
-                `⚠️ Token ${tokenId} is no longer owned by you (owned by ${owner})`
-              );
-              return null;
-            }
-          } catch (ownerError) {
-            console.log(`⚠️ Token ${tokenId} no longer exists or was burned`);
+          const owner = await contract.ownerOf(tokenId);
+          if (owner.toLowerCase() !== address.toLowerCase()) {
             return null;
           }
 
-          // Get metadata URI
           const tokenURI = await contract.tokenURI(tokenId);
-          console.log(
-            `📄 Token ${tokenId} URI:`,
-            tokenURI.slice(0, 50) + "..."
-          );
-
-          // Parse metadata (it's base64 encoded JSON)
           let metadata;
           if (tokenURI.startsWith("data:application/json;base64,")) {
             const base64Data = tokenURI.split(",")[1];
             const jsonString = atob(base64Data);
             metadata = JSON.parse(jsonString);
           } else {
-            // If it's a regular URL, fetch it
             const response = await fetch(tokenURI);
             metadata = await response.json();
           }
 
-          console.log(`✅ Token ${tokenId} metadata:`, metadata.name);
-
-          // Extract stats from attributes
           const stats: Stats = {
             hp: 0,
             attack: 0,
@@ -201,12 +207,10 @@ const MyPokemonPage: React.FC = () => {
             }
           });
 
-          // Get Pokémon ID from image URL or metadata
           const imageUrl = metadata.image;
           const pokemonIdMatch = imageUrl.match(/\/(\d+)\.png/);
           const pokemonId = pokemonIdMatch ? parseInt(pokemonIdMatch[1]) : 0;
 
-          // Get other attributes
           const rarity =
             metadata.attributes?.find((a: any) => a.trait_type === "Rarity")
               ?.value || "Common";
@@ -228,7 +232,7 @@ const MyPokemonPage: React.FC = () => {
             tokenId: tokenId,
           };
         } catch (err) {
-          console.error(`❌ Error fetching token:`, err);
+          console.error("Error processing token:", err);
           return null;
         }
       });
@@ -236,10 +240,6 @@ const MyPokemonPage: React.FC = () => {
       const pokemons = (await Promise.all(pokemonPromises)).filter(
         Boolean
       ) as OwnedPokemon[];
-
-      console.log(`✅ Successfully loaded ${pokemons.length} Pokémon`);
-
-      // Sort by token ID (most recent first)
       pokemons.sort((a, b) => b.tokenId - a.tokenId);
 
       setOwnedPokemons(pokemons);
@@ -251,9 +251,80 @@ const MyPokemonPage: React.FC = () => {
     }
   };
 
+  const loadListingStatus = async (tokenId: number) => {
+    try {
+      const listing = await getListing(tokenId);
+      setListingStatuses((prev) => ({
+        ...prev,
+        [tokenId]:
+          listing && listing.isListed
+            ? { priceEth: listing.price, isListed: true }
+            : { priceEth: "", isListed: false },
+      }));
+    } catch (err) {
+      console.error(`Failed to load listing for #${tokenId}:`, err);
+      setListingStatuses((prev) => {
+        const next = { ...prev };
+        delete next[tokenId];
+        return next;
+      });
+    }
+  };
+
+  const handleListingAction = async (
+    action: "list" | "update" | "cancel",
+    tokenId: number
+  ) => {
+    setIsProcessingListing(true);
+    setListingActionError(null);
+
+    try {
+      if (action === "cancel") {
+        await cancelListing(tokenId);
+        alert(`Listing for #${tokenId} cancelled successfully!`);
+      } else {
+        const price = parseFloat(listingPriceEth);
+        if (isNaN(price) || price <= 0) {
+          throw new Error("Please enter a valid price greater than 0 ETH");
+        }
+
+        if (action === "list") {
+          await listPokemon(tokenId, price);
+          alert(`Pokémon #${tokenId} listed for ${price} ETH!`);
+        } else if (action === "update") {
+          await cancelListing(tokenId);
+          await listPokemon(tokenId, price);
+          alert(`Price updated to ${price} ETH for #${tokenId}`);
+        }
+      }
+
+      // Refresh UI for this token
+      await loadListingStatus(tokenId);
+      // Optional: refresh full list if needed
+      // await loadOwnedPokemons();
+
+      if (action !== "cancel") {
+        setShowListingModal(false);
+        setListingPriceEth("");
+      }
+    } catch (err: any) {
+      console.error("Listing action failed:", err);
+      setListingActionError(err.message || "Action failed. Check console.");
+    } finally {
+      setIsProcessingListing(false);
+    }
+  };
+
   useEffect(() => {
     loadOwnedPokemons();
   }, []);
+
+  // Load listing status for all owned Pokémon after they are loaded
+  useEffect(() => {
+    if (ownedPokemons.length > 0) {
+      ownedPokemons.forEach((p) => loadListingStatus(p.tokenId));
+    }
+  }, [ownedPokemons.length]);
 
   if (loading) {
     return (
@@ -292,7 +363,6 @@ const MyPokemonPage: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-gray-900 to-black text-white p-6">
-      {/* Header */}
       <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-4xl font-bold text-yellow-400 mb-2">
@@ -306,13 +376,13 @@ const MyPokemonPage: React.FC = () => {
         <button
           onClick={loadOwnedPokemons}
           disabled={loading}
-          className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed"
+          className="px-4 py-2 rounded-lg font-semibold transition flex items-center gap-2 bg-yellow-500 text-black hover:bg-yellow-400"
         >
-          {loading ? "Refreshing..." : "🔄 Refresh"}
+          <FaSyncAlt className={loading ? "animate-spin" : ""} />
+          {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>
 
-      {/* Empty State */}
       {ownedPokemons.length === 0 ? (
         <div className="text-center py-20">
           <div className="text-6xl mb-4">📦</div>
@@ -329,119 +399,148 @@ const MyPokemonPage: React.FC = () => {
         </div>
       ) : (
         <>
-          {/* Pokémon Grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6 mb-12">
-            {ownedPokemons.map((pokemon) => (
-              <div
-                key={pokemon.tokenId}
-                className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all transform hover:-translate-y-2 relative ${getRarityGlow(
-                  pokemon.rarity
-                )}`}
-              >
-                {/* NFT Badge */}
-                <div className="absolute top-2 left-2 z-10">
-                  <span className="px-2 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center gap-1">
-                    🎮 NFT
-                  </span>
-                </div>
+            {ownedPokemons.map((pokemon) => {
+              const status = listingStatuses[pokemon.tokenId] || {
+                isListed: false,
+                priceEth: "",
+              };
+              const isListed = status.isListed;
 
-                {/* Level Badge */}
-                <div className="absolute top-2 right-2 z-10">
-                  <span className="px-3 py-1 rounded-full text-xs font-bold bg-black/70 text-white border border-white/20">
-                    Lv. {pokemon.level}
-                  </span>
-                </div>
-
-                {/* Pokemon Image */}
-                <div className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6">
-                  <img
-                    src={pokemon.image}
-                    alt={pokemon.name}
-                    className="w-44 h-44 object-contain drop-shadow-lg transition-transform duration-300 group-hover:scale-110"
-                  />
-                </div>
-
-                {/* Pokemon Info */}
-                <div className="bg-gradient-to-b from-gray-700 to-gray-800 p-4 border-t border-gray-700">
-                  <div className="mb-2">
-                    <span
-                      className={`capitalize font-semibold text-sm px-2 py-1 rounded-md bg-white/10 border border-white/20 ${
-                        typeColors[pokemon.type] || "text-white"
-                      }`}
-                    >
-                      {pokemon.type}
+              return (
+                <div
+                  key={pokemon.tokenId}
+                  className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all transform hover:-translate-y-2 relative ${getRarityGlow(
+                    pokemon.rarity
+                  )}`}
+                >
+                  {/* NFT Badge */}
+                  <div className="absolute top-2 left-2 z-10">
+                    <span className="px-2 py-1 rounded-full text-xs font-bold bg-gradient-to-r from-purple-500 to-pink-500 text-white flex items-center gap-1">
+                      🎮 NFT
                     </span>
                   </div>
 
-                  <h4 className="font-bold text-xl mb-2">
-                    <span className={`${getRarityColor(pokemon.rarity)} mr-1`}>
-                      {pokemon.rarity}
+                  {/* Level Badge */}
+                  <div className="absolute top-2 right-2 z-10">
+                    <span className="px-3 py-1 rounded-full text-xs font-bold bg-black/70 text-white border border-white/20">
+                      Lv. {pokemon.level}
                     </span>
-                    <span className="text-white">{pokemon.name}</span>
-                  </h4>
-
-                  {/* Stats Preview */}
-                  <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
-                    <div className="bg-black/30 rounded p-1 text-center">
-                      <p className="text-gray-400">HP</p>
-                      <p className="font-bold text-red-400">
-                        {pokemon.stats.hp}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded p-1 text-center">
-                      <p className="text-gray-400">ATK</p>
-                      <p className="font-bold text-orange-400">
-                        {pokemon.stats.attack}
-                      </p>
-                    </div>
-                    <div className="bg-black/30 rounded p-1 text-center">
-                      <p className="text-gray-400">DEF</p>
-                      <p className="font-bold text-blue-400">
-                        {pokemon.stats.defense}
-                      </p>
-                    </div>
                   </div>
 
-                  {/* Token Info */}
-                  <div className="space-y-1 text-xs text-gray-400 mb-3">
-                    <div className="flex justify-between">
-                      <span>Token ID:</span>
-                      <span className="text-white font-mono">
-                        #{pokemon.tokenId}
+                  {/* Listed Badge */}
+                  {isListed && (
+                    <div className="absolute top-12 right-2 z-10 bg-yellow-500/80 text-black text-xs font-bold px-2 py-1 rounded-full">
+                      Listed • {status.priceEth} ETH
+                    </div>
+                  )}
+
+                  {/* Clickable Pokemon Image */}
+                  <div
+                    className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6 cursor-pointer hover:opacity-90 transition-opacity"
+                    onClick={() =>
+                      navigate(`/marketplace/${pokemon.tokenId}`, {
+                        state: { pokemon, source: "owned" },
+                      })
+                    }
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`View details for ${pokemon.name}`}
+                  >
+                    <img
+                      src={pokemon.image}
+                      alt={pokemon.name}
+                      className="w-44 h-44 object-contain drop-shadow-lg transition-transform duration-300 group-hover:scale-110"
+                    />
+                  </div>
+
+                  {/* Pokemon Info */}
+                  <div className="bg-gradient-to-b from-gray-700 to-gray-800 p-4 border-t border-gray-700">
+                    <div className="mb-2">
+                      <span
+                        className={`capitalize font-semibold text-sm px-2 py-1 rounded-md bg-white/10 border border-white/20 ${
+                          typeColors[pokemon.type] || "text-white"
+                        }`}
+                      >
+                        {pokemon.type}
                       </span>
                     </div>
-                    <div className="flex justify-between">
-                      <span>Network:</span>
-                      <span className="text-blue-400">Sepolia</span>
+
+                    <h4 className="font-bold text-xl mb-2">
+                      <span
+                        className={`${getRarityColor(pokemon.rarity)} mr-1`}
+                      >
+                        {pokemon.rarity}
+                      </span>
+                      <span className="text-white">{pokemon.name}</span>
+                    </h4>
+
+                    <div className="grid grid-cols-3 gap-2 mb-3 text-xs">
+                      <div className="bg-black/30 rounded p-1 text-center">
+                        <p className="text-gray-400">HP</p>
+                        <p className="font-bold text-red-400">
+                          {pokemon.stats.hp}
+                        </p>
+                      </div>
+                      <div className="bg-black/30 rounded p-1 text-center">
+                        <p className="text-gray-400">ATK</p>
+                        <p className="font-bold text-orange-400">
+                          {pokemon.stats.attack}
+                        </p>
+                      </div>
+                      <div className="bg-black/30 rounded p-1 text-center">
+                        <p className="text-gray-400">DEF</p>
+                        <p className="font-bold text-blue-400">
+                          {pokemon.stats.defense}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1 text-xs text-gray-400 mb-3">
+                      <div className="flex justify-between">
+                        <span>Token ID:</span>
+                        <span className="text-white font-mono">
+                          #{pokemon.tokenId}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Network:</span>
+                        <span className="text-blue-400">Sepolia</span>
+                      </div>
+                    </div>
+
+                    {/* Action Buttons - only listing */}
+                    <div className="flex gap-2 mt-3">
+                      <button
+                        onClick={async () => {
+                          setSelectedTokenForListing(pokemon.tokenId);
+                          setShowListingModal(true);
+                          setListingPriceEth(status.priceEth || "");
+                          // Status already loaded, but refresh to be sure
+                          await loadListingStatus(pokemon.tokenId);
+                        }}
+                        className={`flex-1 py-2 px-3 rounded text-sm font-medium transition flex items-center justify-center gap-1.5 ${
+                          isListed
+                            ? "bg-purple-600 hover:bg-purple-700"
+                            : "bg-green-600 hover:bg-green-700"
+                        } text-white`}
+                        disabled={isProcessingListing}
+                      >
+                        {isListed ? (
+                          <>
+                            <FaEdit size={14} /> Manage
+                          </>
+                        ) : (
+                          <>
+                            <FaTag size={14} /> List
+                          </>
+                        )}
+                      </button>
                     </div>
                   </div>
-
-                  {/* Action Buttons */}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() =>
-                        navigate(`/marketplace/${pokemon.tokenId}`, {
-                          state: {
-                            pokemon: {
-                              ...pokemon,
-                              ethPrice: 0,
-                              price: 0,
-                            },
-                            source: "listings",
-                          },
-                        })
-                      }
-                      className="flex-1 bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm"
-                    >
-                      View Details
-                    </button>
-                    <button className="flex-1 bg-green-600 hover:bg-green-700 text-white font-semibold py-2 px-4 rounded-lg transition text-sm">
-                      List for Sale
-                    </button>
-                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
           </div>
 
           {/* Stats Section */}
@@ -478,6 +577,183 @@ const MyPokemonPage: React.FC = () => {
           </div>
         </>
       )}
+
+      {/* Listing Management Modal */}
+      {/* Listing Management Modal */}
+      <Dialog open={showListingModal} onOpenChange={setShowListingModal}>
+        <DialogContent className="bg-gray-900 border border-gray-700 text-white max-w-md sm:max-w-lg">
+          <DialogHeader>
+            <DialogTitle className="text-xl">
+              {listingStatuses[selectedTokenForListing || 0]?.isListed
+                ? "Update Listing Price"
+                : "List Pokémon for Sale"}
+            </DialogTitle>
+          </DialogHeader>
+
+          {selectedTokenForListing && (
+            <div className="py-4 space-y-6">
+              {/* Pokémon Preview */}
+              <div className="flex items-center gap-4 bg-gray-800/50 p-4 rounded-lg">
+                <img
+                  src={
+                    ownedPokemons.find(
+                      (p) => p.tokenId === selectedTokenForListing
+                    )?.image
+                  }
+                  alt="Pokémon"
+                  className="w-16 h-16 object-contain drop-shadow-md"
+                  onError={(e) =>
+                    (e.currentTarget.src =
+                      "https://via.placeholder.com/64?text=?")
+                  }
+                />
+                <div>
+                  <h3 className="font-bold text-lg">
+                    {ownedPokemons.find(
+                      (p) => p.tokenId === selectedTokenForListing
+                    )?.name || "Pokémon"}
+                  </h3>
+                  <div className="flex items-center gap-2 text-sm mt-1">
+                    <span
+                      className={`font-medium ${getRarityColor(
+                        ownedPokemons.find(
+                          (p) => p.tokenId === selectedTokenForListing
+                        )?.rarity || "Common"
+                      )}`}
+                    >
+                      {ownedPokemons.find(
+                        (p) => p.tokenId === selectedTokenForListing
+                      )?.rarity || "Common"}
+                    </span>
+                    <span className="text-gray-400">
+                      • Lv.{" "}
+                      {ownedPokemons.find(
+                        (p) => p.tokenId === selectedTokenForListing
+                      )?.level || "?"}
+                    </span>
+                    <span className="text-gray-500 font-mono">
+                      #{selectedTokenForListing}
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Price Input */}
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-gray-300">
+                  Price in ETH (Sepolia testnet)
+                </label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="number"
+                    step="0.0001"
+                    min="0.0001"
+                    value={listingPriceEth}
+                    onChange={(e) => setListingPriceEth(e.target.value)}
+                    placeholder="0.05"
+                    disabled={isProcessingListing}
+                    className="flex-1 bg-gray-800 border border-gray-600 rounded-lg p-3 text-white focus:ring-2 focus:ring-yellow-500 focus:border-transparent outline-none"
+                  />
+                  <span className="text-yellow-400 font-bold text-lg">ETH</span>
+                </div>
+                <p className="text-xs text-gray-500">
+                  This price will be displayed on the marketplace. Minimum
+                  recommended: 0.001 ETH
+                </p>
+              </div>
+
+              {/* Current Price (if listed) */}
+              {listingStatuses[selectedTokenForListing || 0]?.isListed && (
+                <div className="bg-blue-900/30 border border-blue-700/50 p-3 rounded-lg">
+                  <p className="text-sm text-blue-300">
+                    Current listing price:{" "}
+                    <span className="font-bold text-yellow-400">
+                      {listingStatuses[selectedTokenForListing || 0].priceEth}{" "}
+                      ETH
+                    </span>
+                  </p>
+                </div>
+              )}
+
+              {/* Error Message */}
+              {listingActionError && (
+                <div className="bg-red-900/30 border border-red-700/50 p-3 rounded-lg text-red-300 text-sm">
+                  {listingActionError}
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter className="flex flex-col sm:flex-row gap-3 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => setShowListingModal(false)}
+              className="bg-neutral-900 text-gray-300 border border-gray-600 hover:bg-neutral-800 transition"
+              disabled={isProcessingListing}
+            >
+              Cancel
+            </Button>
+
+            {listingStatuses[selectedTokenForListing || 0]?.isListed ? (
+              <>
+                <Button
+                  onClick={() =>
+                    selectedTokenForListing &&
+                    handleListingAction("update", selectedTokenForListing)
+                  }
+                  disabled={
+                    isProcessingListing ||
+                    !listingPriceEth ||
+                    parseFloat(listingPriceEth) <= 0
+                  }
+                  className="bg-purple-600 hover:bg-purple-700 text-white flex-1"
+                >
+                  {isProcessingListing ? (
+                    <span className="flex items-center gap-2">
+                      <FaSyncAlt className="animate-spin" /> Processing...
+                    </span>
+                  ) : (
+                    "Update Price"
+                  )}
+                </Button>
+
+                <Button
+                  variant="destructive"
+                  onClick={() =>
+                    selectedTokenForListing &&
+                    handleListingAction("cancel", selectedTokenForListing)
+                  }
+                  disabled={isProcessingListing}
+                  className="flex-1"
+                >
+                  Cancel Listing
+                </Button>
+              </>
+            ) : (
+              <Button
+                onClick={() =>
+                  selectedTokenForListing &&
+                  handleListingAction("list", selectedTokenForListing)
+                }
+                disabled={
+                  isProcessingListing ||
+                  !listingPriceEth ||
+                  parseFloat(listingPriceEth) <= 0
+                }
+                className="bg-green-600 hover:bg-green-700 text-white flex-1"
+              >
+                {isProcessingListing ? (
+                  <span className="flex items-center gap-2">
+                    <FaSyncAlt className="animate-spin" /> Processing...
+                  </span>
+                ) : (
+                  "Confirm Listing"
+                )}
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

@@ -15,6 +15,7 @@ import {
   FaBolt,
   FaUsers,
   FaSyncAlt,
+  FaCheckCircle,
 } from "react-icons/fa";
 import {
   Dialog,
@@ -30,10 +31,12 @@ import type {
   MarketplaceFilters,
   Stats,
 } from "../utils/types";
+import contractAddress from "../contracts/contract-address.json";
+import { getContractReadOnly } from "../contracts/contractUtils";
 
 const REFRESH_INTERVAL = 24 * 60 * 60 * 1000; // 24 hours
-const MAX_DAILY_REFRESHES = 10;
-const MAX_DAILY_PURCHASES = 5;
+const MAX_DAILY_REFRESHES = 20;
+const MAX_DAILY_PURCHASES = 10;
 const DAILY_DROP_COUNT = 4; // Only 4 Pokémon in Daily Drop
 
 // Marketplace exclusive Pokémon (never in Daily Drop)
@@ -167,6 +170,7 @@ const MarketplacePage: React.FC = () => {
     useState<GeneratedPokemon | null>(null);
   const [showSuccessModal, setShowSuccessModal] = useState(false);
   const [showErrorModal, setShowErrorModal] = useState(false);
+  const [showLimitModal, setShowLimitModal] = useState(false);
   const [successMessage, setSuccessMessage] = useState<{
     title: string;
     message: string;
@@ -177,6 +181,27 @@ const MarketplacePage: React.FC = () => {
     title: string;
     message: string;
   } | null>(null);
+  const [limitMessage, setLimitMessage] = useState<{
+    title: string;
+    message: string;
+    resetTime: string;
+  } | null>(null);
+  const [communityListings, setCommunityListings] = useState<MintedPokemon[]>(
+    []
+  );
+  const [loadingListings, setLoadingListings] = useState(false);
+
+  const isNewDay = (lastResetTime: number): boolean => {
+    const now = new Date();
+    const lastReset = new Date(lastResetTime);
+
+    // Compare UTC dates
+    return (
+      now.getUTCDate() !== lastReset.getUTCDate() ||
+      now.getUTCMonth() !== lastReset.getUTCMonth() ||
+      now.getUTCFullYear() !== lastReset.getUTCFullYear()
+    );
+  };
 
   // Get user address
   useEffect(() => {
@@ -237,38 +262,24 @@ const MarketplacePage: React.FC = () => {
     const savedRefresh = localStorage.getItem("lastMarketplaceRefresh");
 
     if (savedDailyDrop && savedRefresh) {
-      const lastRefreshDate = new Date(parseInt(savedRefresh));
-      const now = new Date();
-
-      // Check if it's still the same day (UTC)
-      if (
-        lastRefreshDate.getUTCDate() === now.getUTCDate() &&
-        lastRefreshDate.getUTCMonth() === now.getUTCMonth() &&
-        lastRefreshDate.getUTCFullYear() === now.getUTCFullYear()
-      ) {
+      const lastRefreshTime = parseInt(savedRefresh);
+      if (!isNewDay(lastRefreshTime)) {
         setDailyDropPokemons(JSON.parse(savedDailyDrop));
-        setLastRefresh(parseInt(savedRefresh));
+        setLastRefresh(lastRefreshTime);
         return;
       }
     }
-
-    // Generate new daily drop if no valid cache
-    generateDailyDrop(true); // Auto-refresh doesn't count toward limit
+    generateDailyDrop(true);
   }, []);
 
   // Auto-refresh at midnight UTC
   useEffect(() => {
-    const checkAndRefresh = () => {
-      const now = Date.now();
-      const lastRefreshDate = new Date(lastRefresh);
-      const currentDate = new Date(now);
-
-      if (lastRefreshDate.getUTCDate() !== currentDate.getUTCDate()) {
+    const timer = setInterval(() => {
+      if (isNewDay(lastRefresh)) {
+        console.log("🔄 Midnight passed - Auto-refreshing Daily Drop");
         generateDailyDrop(true);
       }
-    };
-
-    const timer = setInterval(checkAndRefresh, 60000);
+    }, 60000);
     return () => clearInterval(timer);
   }, [lastRefresh]);
 
@@ -366,11 +377,11 @@ const MarketplacePage: React.FC = () => {
       }
     }
 
+    const now = Date.now();
     setDailyDropPokemons(fetched);
-    setLastRefresh(Date.now());
-
+    setLastRefresh(now);
     localStorage.setItem("dailyDropMarketplace", JSON.stringify(fetched));
-    localStorage.setItem("lastMarketplaceRefresh", Date.now().toString());
+    localStorage.setItem("lastMarketplaceRefresh", now.toString());
     setLoading(false);
 
     // If manual refresh, increment counter
@@ -453,31 +464,43 @@ const MarketplacePage: React.FC = () => {
     }
   };
 
-  const canPurchase = (): { canPurchase: boolean; reason?: string } => {
-    const timeSinceReset = Date.now() - purchaseData.lastReset;
-
-    if (timeSinceReset >= REFRESH_INTERVAL) {
+  const canPurchase = (): {
+    canPurchase: boolean;
+    reason?: string;
+    resetTime?: string;
+  } => {
+    if (isNewDay(purchaseData.lastReset)) {
       const newData = { count: 0, lastReset: Date.now() };
       setPurchaseData(newData);
-      if (userAddress) {
+      if (userAddress)
         localStorage.setItem(
           `purchaseData_${userAddress}`,
           JSON.stringify(newData)
         );
-      }
       return { canPurchase: true };
     }
 
     if (purchaseData.count >= MAX_DAILY_PURCHASES) {
-      const hoursUntilReset = Math.ceil(
-        (REFRESH_INTERVAL - timeSinceReset) / (60 * 60 * 1000)
+      const now = new Date();
+      const nextMidnight = new Date(
+        Date.UTC(
+          now.getUTCFullYear(),
+          now.getUTCMonth(),
+          now.getUTCDate() + 1,
+          0,
+          0,
+          0
+        )
+      );
+      const hours = Math.ceil(
+        (nextMidnight.getTime() - now.getTime()) / (60 * 60 * 1000)
       );
       return {
         canPurchase: false,
-        reason: `Daily purchase limit reached (${MAX_DAILY_PURCHASES}/day). Resets in ${hoursUntilReset}h`,
+        reason: `You've reached your daily purchase limit.`,
+        resetTime: `${hours}h`,
       };
     }
-
     return { canPurchase: true };
   };
 
@@ -485,7 +508,13 @@ const MarketplacePage: React.FC = () => {
     try {
       const purchaseCheck = canPurchase();
       if (!purchaseCheck.canPurchase) {
-        alert(`❌ ${purchaseCheck.reason}`);
+        setLimitMessage({
+          title: "Daily Purchase Limit Reached",
+          message:
+            purchaseCheck.reason || "You've reached your daily purchase limit.",
+          resetTime: purchaseCheck.resetTime || "1h",
+        });
+        setShowLimitModal(true);
         return;
       }
 
@@ -513,7 +542,6 @@ const MarketplacePage: React.FC = () => {
           JSON.stringify(newPurchaseData)
         );
 
-        // Save to owned Pokémon
         const ownedPokemons = JSON.parse(
           localStorage.getItem(`ownedPokemons_${address}`) || "[]"
         );
@@ -527,7 +555,6 @@ const MarketplacePage: React.FC = () => {
           JSON.stringify(ownedPokemons)
         );
 
-        // Show success modal
         setSuccessMessage({
           title: "Purchase Successful! 🎉",
           message: `You've successfully minted ${pokemon.name}!`,
@@ -536,7 +563,6 @@ const MarketplacePage: React.FC = () => {
         });
         setShowSuccessModal(true);
 
-        // Generate replacement Pokémon and update the slot
         const replacement = await generateReplacementPokemon();
         if (replacement) {
           setDailyDropPokemons((prev) => {
@@ -550,7 +576,6 @@ const MarketplacePage: React.FC = () => {
             return newPokemons;
           });
         } else {
-          // If replacement fails, just remove the bought Pokémon
           setDailyDropPokemons((prev) => {
             const newPokemons = prev.filter((p) => p.tempId !== pokemon.tempId);
             localStorage.setItem(
@@ -563,7 +588,23 @@ const MarketplacePage: React.FC = () => {
       }
     } catch (error: any) {
       console.error("Purchase failed:", error);
-      alert(`❌ Purchase failed: ${error.message}`);
+
+      let errorTitle = "Purchase Failed";
+      let errorMsg = error.message || "An unknown error occurred";
+
+      if (error.code === 4001 || error.code === "ACTION_REJECTED") {
+        errorTitle = "Transaction Rejected";
+        errorMsg = "You rejected the transaction in MetaMask.";
+      } else if (error.message?.includes("insufficient funds")) {
+        errorTitle = "Insufficient Funds";
+        errorMsg = "You don't have enough ETH to complete this purchase.";
+      } else if (error.message?.includes("network")) {
+        errorTitle = "Network Error";
+        errorMsg = "Please check your connection and try again.";
+      }
+
+      setErrorMessage({ title: errorTitle, message: errorMsg });
+      setShowErrorModal(true);
     } finally {
       setBuyingId(null);
       setShowBuyModal(false);
@@ -575,26 +616,18 @@ const MarketplacePage: React.FC = () => {
     try {
       const purchaseCheck = canPurchase();
       if (!purchaseCheck.canPurchase) {
-        setErrorMessage({
-          title: "Purchase Limit Reached",
+        setLimitMessage({
+          title: "Daily Purchase Limit Reached",
           message:
             purchaseCheck.reason || "You've reached your daily purchase limit.",
+          resetTime: purchaseCheck.resetTime || "1h",
         });
-        setShowErrorModal(true);
+        setShowLimitModal(true);
         return;
       }
 
       setBuyingId(pokemon.tokenId.toString());
       await checkNetwork();
-
-      const confirmed = window.confirm(
-        `Buy ${pokemon.name} for Ξ ${pokemon.ethPrice}?`
-      );
-
-      if (!confirmed) {
-        setBuyingId(null);
-        return;
-      }
 
       const result = await buyListedPokemon(pokemon.tokenId, pokemon.ethPrice);
 
@@ -611,7 +644,6 @@ const MarketplacePage: React.FC = () => {
           );
         }
 
-        // Show success modal
         setSuccessMessage({
           title: "Purchase Successful! 🎉",
           message: `You've successfully purchased ${pokemon.name}!`,
@@ -619,13 +651,11 @@ const MarketplacePage: React.FC = () => {
           txHash: result.transactionHash,
         });
         setShowSuccessModal(true);
-
         loadCommunityMarket();
       }
     } catch (error: any) {
       console.error("Purchase failed:", error);
 
-      // Show error modal instead of alert
       let errorTitle = "Purchase Failed";
       let errorMsg = error.message || "An unknown error occurred";
 
@@ -640,10 +670,7 @@ const MarketplacePage: React.FC = () => {
         errorMsg = "Please check your connection and try again.";
       }
 
-      setErrorMessage({
-        title: errorTitle,
-        message: errorMsg,
-      });
+      setErrorMessage({ title: errorTitle, message: errorMsg });
       setShowErrorModal(true);
     } finally {
       setBuyingId(null);
@@ -663,30 +690,20 @@ const MarketplacePage: React.FC = () => {
   };
 
   const handleForceRefresh = () => {
-    // Check if we need to reset (new UTC day)
-    const now = new Date();
-    const lastResetDate = new Date(refreshData.lastReset);
-
-    if (
-      now.getUTCDate() !== lastResetDate.getUTCDate() ||
-      now.getUTCMonth() !== lastResetDate.getUTCMonth() ||
-      now.getUTCFullYear() !== lastResetDate.getUTCFullYear()
-    ) {
-      // New day - reset counter
-      const newResetTime = Date.now();
-      setRefreshData({ count: 0, lastReset: newResetTime });
-      if (userAddress) {
+    if (isNewDay(refreshData.lastReset)) {
+      const newData = { count: 0, lastReset: Date.now() };
+      setRefreshData(newData);
+      if (userAddress)
         localStorage.setItem(
           `refreshData_${userAddress}`,
-          JSON.stringify({ count: 0, lastReset: newResetTime })
+          JSON.stringify(newData)
         );
-      }
       generateDailyDrop();
       return;
     }
 
-    // Check daily limit
     if (refreshData.count >= MAX_DAILY_REFRESHES) {
+      const now = new Date();
       const nextMidnight = new Date(
         Date.UTC(
           now.getUTCFullYear(),
@@ -697,18 +714,17 @@ const MarketplacePage: React.FC = () => {
           0
         )
       );
-      const hoursUntilReset = Math.ceil(
+      const hours = Math.ceil(
         (nextMidnight.getTime() - now.getTime()) / (60 * 60 * 1000)
       );
-
-      setErrorMessage({
+      setLimitMessage({
         title: "Refresh Limit Reached",
-        message: `Daily refresh limit reached (${MAX_DAILY_REFRESHES}/day). Resets in ${hoursUntilReset} hours.`,
+        message: `You've used all ${MAX_DAILY_REFRESHES} daily refreshes.`,
+        resetTime: `${hours}h`,
       });
-      setShowErrorModal(true);
+      setShowLimitModal(true);
       return;
     }
-
     generateDailyDrop();
   };
 
@@ -721,19 +737,102 @@ const MarketplacePage: React.FC = () => {
         now.getUTCDate() + 1,
         0,
         0,
-        0,
         0
       )
     );
-    const timeRemaining = nextMidnight.getTime() - now.getTime();
-
-    const hours = Math.floor(timeRemaining / (1000 * 60 * 60));
-    const minutes = Math.floor(
-      (timeRemaining % (1000 * 60 * 60)) / (1000 * 60)
-    );
-
+    const ms = nextMidnight.getTime() - now.getTime();
+    const hours = Math.floor(ms / (1000 * 60 * 60));
+    const minutes = Math.floor((ms % (1000 * 60 * 60)) / (1000 * 60));
     return `${hours}h ${minutes}m`;
   };
+
+  const refreshCommunityListings = async () => {
+    setLoadingListings(true);
+    try {
+      const rawListings = await getAllListings();
+
+      const enriched = await Promise.all(
+        rawListings.map(async (listing) => {
+          try {
+            // Get the read-only contract instance
+            const contract = await getContractReadOnly();
+
+            const tokenURI = await contract.tokenURI(listing.tokenId);
+
+            let metadata: any = null;
+            if (tokenURI.startsWith("data:application/json;base64,")) {
+              const base64Data = tokenURI.split(",")[1];
+              metadata = JSON.parse(atob(base64Data));
+            } else {
+              const response = await fetch(tokenURI);
+              if (!response.ok) {
+                throw new Error(`Metadata fetch failed: ${response.status}`);
+              }
+              metadata = await response.json();
+            }
+
+            if (!metadata) throw new Error("No metadata found");
+
+            const attributes = metadata.attributes || [];
+
+            const getAttr = (trait: string) =>
+              attributes.find((a: any) => a?.trait_type === trait)?.value ??
+              null;
+
+            const imageUrl = metadata.image || "";
+            const pokemonIdMatch = imageUrl.match(/\/(\d+)\.png/);
+            const pokemonId = pokemonIdMatch
+              ? parseInt(pokemonIdMatch[1], 10)
+              : 0;
+
+            const stats: Stats = {
+              hp: getAttr("HP") ?? 0,
+              attack: getAttr("Attack") ?? 0,
+              defense: getAttr("Defense") ?? 0,
+              speed: getAttr("Speed") ?? 0,
+              specialAttack: getAttr("Special Attack") ?? undefined,
+              specialDefense: getAttr("Special Defense") ?? undefined,
+            };
+
+            return {
+              id: pokemonId,
+              name: metadata.name || "Unknown",
+              image: imageUrl,
+              type: (getAttr("Type") || "normal").toLowerCase(),
+              rarity: getAttr("Rarity") || "Common",
+              level: Number(getAttr("Level")) || 1,
+              stats,
+              tokenId: listing.tokenId,
+              ethPrice: parseFloat(listing.price),
+              price: parseFloat(listing.price) * 2500,
+              seller: listing.seller,
+              isListed: true,
+              timestamp: Date.now(),
+            } as MintedPokemon;
+          } catch (err) {
+            console.error(`Failed to enrich listing #${listing.tokenId}:`, err);
+            return null;
+          }
+        })
+      );
+
+      const validListings = enriched.filter(
+        (p): p is MintedPokemon => p !== null
+      );
+      setCommunityMarketPokemons(validListings);
+    } catch (err) {
+      console.error("refreshCommunityListings failed:", err);
+      setCommunityMarketPokemons([]);
+    } finally {
+      setLoadingListings(false);
+    }
+  };
+
+  useEffect(() => {
+    refreshCommunityListings();
+    const interval = setInterval(refreshCommunityListings, 30000); // every 30s
+    return () => clearInterval(interval);
+  }, []);
 
   const filterPokemons = <T extends GeneratedPokemon | MintedPokemon>(
     pokemons: T[]
@@ -778,6 +877,13 @@ const MarketplacePage: React.FC = () => {
       ("tempId" in pokemon ? pokemon.tempId : pokemon.tokenId.toString());
     const isDailyDrop = source === "daily";
 
+    // Detect if this is the current user's own listing
+    const isMine =
+      !isDailyDrop &&
+      "seller" in pokemon &&
+      userAddress &&
+      pokemon.seller?.toLowerCase() === userAddress.toLowerCase();
+
     return (
       <div
         key={
@@ -785,18 +891,32 @@ const MarketplacePage: React.FC = () => {
             ? (pokemon as GeneratedPokemon).tempId
             : (pokemon as MintedPokemon).tokenId
         }
-        className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-lg transition-all transform hover:-translate-y-2 relative ${getRarityGlow(
+        className={`group bg-gray-800 rounded-xl overflow-hidden shadow-md hover:shadow-xl transition-all transform hover:-translate-y-2 relative cursor-pointer ${getRarityGlow(
           pokemon.rarity
-        )}`}
+        )} ${
+          isMine
+            ? "ring-2 ring-green-500/50 ring-offset-2 ring-offset-gray-900"
+            : ""
+        }`}
+        onClick={() => {
+          if (isMine && !isDailyDrop) {
+            // Gentle UX feedback instead of blocking completely
+            alert(
+              "This is your own listing — you cannot buy it from yourself."
+            );
+            return;
+          }
+          handleCardClick(pokemon, source);
+        }}
       >
         {/* Source Badge */}
         <div className="absolute top-2 left-2 z-10">
           {isDailyDrop ? (
-            <span className="px-2 py-1 rounded-full text-xs font-bold bg-yellow-500 text-black flex items-center gap-1">
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-yellow-500 text-black flex items-center gap-1 shadow-sm">
               <FaBolt className="text-xs" /> Daily Drop
             </span>
           ) : (
-            <span className="px-2 py-1 rounded-full text-xs font-bold bg-blue-500 text-white flex items-center gap-1">
+            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-600 text-white flex items-center gap-1 shadow-sm">
               <FaUsers className="text-xs" /> Community
             </span>
           )}
@@ -804,28 +924,43 @@ const MarketplacePage: React.FC = () => {
 
         {/* Level Badge */}
         <div className="absolute top-2 right-2 z-10">
-          <span className="px-3 py-1 rounded-full text-xs font-bold bg-black/70 text-white border border-white/20">
+          <span className="px-3 py-1 rounded-full text-xs font-bold bg-black/70 text-white border border-white/20 shadow-sm">
             Lv. {pokemon.level}
           </span>
         </div>
 
+        {/* Yours Badge - only for your own listings */}
+        {isMine && (
+          <div className="absolute top-12 right-2 z-20 bg-green-600/90 text-white text-xs font-bold px-3 py-1 rounded-full shadow-md flex items-center gap-1.5">
+            <FaCheckCircle className="text-xs" /> Yours
+          </div>
+        )}
+
         {/* Pokemon Image */}
         <div
           className="relative bg-gradient-to-b from-gray-100 to-gray-300 flex justify-center items-center p-6 cursor-pointer"
-          onClick={() => handleCardClick(pokemon, source)}
+          onClick={() => {
+            if (isMine && !isDailyDrop) {
+              alert(
+                "This is your own listing — you cannot buy it from yourself."
+              );
+              return;
+            }
+            handleCardClick(pokemon, source);
+          }}
         >
           <img
             src={pokemon.image}
             alt={pokemon.name}
-            className="w-44 h-44 object-contain drop-shadow-lg transition-transform duration-300 group-hover:scale-110"
+            className="w-44 h-44 object-contain drop-shadow-xl transition-transform duration-300 group-hover:scale-110"
           />
         </div>
 
         {/* Pokemon Info */}
-        <div className="bg-gradient-to-b from-gray-700 to-gray-800 p-4 border-t border-gray-700 relative transition-all duration-300 group-hover:-translate-y-10">
+        <div className="bg-gradient-to-b from-gray-700 to-gray-800 p-4 border-t border-gray-700">
           <div className="mb-2">
             <span
-              className={`capitalize font-semibold text-sm px-2 py-1 rounded-md bg-white/10 border border-white/20 ${
+              className={`capitalize font-semibold text-sm px-2.5 py-1 rounded-md bg-white/10 border border-white/20 ${
                 typeColors[
                   pokemon.type.charAt(0).toUpperCase() + pokemon.type.slice(1)
                 ] || "text-white"
@@ -835,11 +970,11 @@ const MarketplacePage: React.FC = () => {
             </span>
           </div>
 
-          <h4 className="font-bold text-xl mb-2">
-            <span className={`${getRarityColor(pokemon.rarity)} mr-1`}>
+          <h4 className="font-bold text-xl mb-2 truncate">
+            <span className={`${getRarityColor(pokemon.rarity)} mr-1.5`}>
               {pokemon.rarity}
             </span>
-            <span className="text-white">{pokemon.name}</span>
+            {pokemon.name}
           </h4>
 
           {/* Stats Preview */}
@@ -860,41 +995,67 @@ const MarketplacePage: React.FC = () => {
             </div>
           </div>
 
-          {/* Price */}
-          <div className="flex items-center justify-between mb-1">
-            <p className="text-yellow-400 font-bold text-lg flex items-center gap-2">
-              <FaEthereum /> {pokemon.ethPrice}
-              <span className="text-gray-400 text-sm font-normal">
-                (~${pokemon.price})
+          {/* Price & Seller */}
+          <div className="space-y-1.5 text-sm mb-4">
+            <div className="flex justify-between items-center">
+              <span className="text-gray-400">Price</span>
+              <span className="text-yellow-400 font-bold">
+                {pokemon.ethPrice} ETH
+                <span className="text-gray-500 text-xs ml-1.5">
+                  (~${pokemon.price.toFixed(0)})
+                </span>
               </span>
-            </p>
+            </div>
+
+            {"seller" in pokemon && (
+              <div className="flex justify-between items-center">
+                <span className="text-gray-400">Seller</span>
+                <span
+                  className={`${
+                    isMine ? "text-green-400 font-semibold" : "text-blue-400"
+                  } font-mono`}
+                >
+                  {isMine
+                    ? "You"
+                    : `${pokemon.seller.slice(0, 6)}...${pokemon.seller.slice(
+                        -4
+                      )}`}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Buy Button */}
-          <div className="absolute bottom-4 left-0 right-0 px-4 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-11 transition-all duration-300">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                if (isDailyDrop) {
-                  setSelectedPokemon(pokemon as GeneratedPokemon);
-                  setShowBuyModal(true);
-                } else {
-                  handleBuyFromCommunityMarket(pokemon as MintedPokemon);
-                }
-              }}
-              disabled={isBuying}
-              className={`w-full ${
-                isBuying
-                  ? "bg-gray-600 cursor-not-allowed"
-                  : "bg-yellow-500 hover:bg-yellow-400"
-              } text-black font-semibold py-2 px-4 rounded-lg transition cursor-pointer`}
-            >
-              {isBuying
-                ? "Processing..."
-                : isDailyDrop
-                ? "Mint & Buy"
-                : "Buy Now"}
-            </button>
+          {/* Action Button Area */}
+          <div className="absolute bottom-4 left-0 right-0 px-4 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
+            {isMine && !isDailyDrop ? (
+              <div className="w-full bg-gray-700/80 text-gray-300 font-semibold py-2.5 px-4 rounded-lg text-center cursor-not-allowed border border-gray-600 shadow-inner">
+                Your Listing — Cannot Buy
+              </div>
+            ) : (
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (isDailyDrop) {
+                    setSelectedPokemon(pokemon as GeneratedPokemon);
+                    setShowBuyModal(true);
+                  } else {
+                    handleBuyFromCommunityMarket(pokemon as MintedPokemon);
+                  }
+                }}
+                disabled={isBuying}
+                className={`w-full ${
+                  isBuying
+                    ? "bg-gray-600 cursor-not-allowed opacity-70"
+                    : "bg-yellow-500 hover:bg-yellow-400"
+                } text-black font-semibold py-2.5 px-4 rounded-lg transition shadow-md`}
+              >
+                {isBuying
+                  ? "Processing..."
+                  : isDailyDrop
+                  ? "Mint & Buy Now"
+                  : "Buy Now"}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -987,20 +1148,21 @@ const MarketplacePage: React.FC = () => {
 
       {/* Community Market Section */}
       <div className="mb-12">
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-6">
           <h2 className="text-3xl font-bold flex items-center gap-2">
-            <FaUsers className="text-blue-400" />
-            👥 Community Market
+            <FaUsers className="text-blue-400" /> 👥 Community Market
           </h2>
-          {filteredCommunityMarket.length > 0 && (
-            <span className="text-sm text-gray-400">
-              {filteredCommunityMarket.length} listing
-              {filteredCommunityMarket.length !== 1 ? "s" : ""}
-            </span>
-          )}
+          <Button
+            onClick={refreshCommunityListings}
+            disabled={loadingListings}
+            className="flex items-center gap-2 px-4 py-2 bg-yellow-500 hover:bg-yellow-400 text-black font-semibold rounded-lg transition"
+          >
+            <FaSyncAlt className={loadingListings ? "animate-spin" : ""} />
+            {loadingListings ? "Refreshing..." : "Refresh Listings"}
+          </Button>
         </div>
 
-        {/* Filters - Only for Community Market */}
+        {/* Filters (apply to Community Market) */}
         <div className="flex flex-wrap gap-4 mb-6">
           <select
             value={filters.type}
@@ -1052,7 +1214,7 @@ const MarketplacePage: React.FC = () => {
             <option value=">150">Above $150</option>
           </select>
 
-          <button
+          <Button
             onClick={() =>
               setFilters({
                 type: "All",
@@ -1061,30 +1223,34 @@ const MarketplacePage: React.FC = () => {
                 price: "All",
               })
             }
-            className="bg-gray-800 border border-gray-600 rounded-lg p-2 px-4 text-white hover:bg-gray-700 transition"
+            className="bg-gray-800 border border-gray-600 rounded-lg p-5 px-4 text-white hover:bg-gray-700 transition"
           >
             Reset Filters
-          </button>
+          </Button>
         </div>
 
-        {filteredCommunityMarket.length > 0 ? (
+        {loadingListings ? (
+          <div className="flex justify-center items-center py-20">
+            <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-400"></div>
+          </div>
+        ) : filteredCommunityMarket.length === 0 ? (
+          <div className="text-center py-12 bg-gray-800/50 border border-gray-700 rounded-lg">
+            <p className="text-gray-400 text-lg mb-2">
+              {communityListings.length === 0
+                ? "No player listings yet"
+                : "No matches with current filters"}
+            </p>
+            <p className="text-gray-500 text-sm">
+              {communityListings.length === 0
+                ? "List your Pokémon to be the first!"
+                : "Try adjusting filters"}
+            </p>
+          </div>
+        ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
             {filteredCommunityMarket.map((pokemon) =>
               renderPokemonCard(pokemon, "community")
             )}
-          </div>
-        ) : (
-          <div className="text-center py-12 bg-gray-800/50 border border-gray-700 rounded-lg">
-            <p className="text-gray-400 text-lg mb-2">
-              {communityMarketPokemons.length === 0
-                ? "🏪 No player listings available yet"
-                : "No Pokémon match your filters in Community Market"}
-            </p>
-            <p className="text-gray-500 text-sm">
-              {communityMarketPokemons.length === 0
-                ? "Train your Pokémon and be the first to list!"
-                : "Try adjusting your filters"}
-            </p>
           </div>
         )}
       </div>
