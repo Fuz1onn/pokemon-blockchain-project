@@ -52,7 +52,7 @@ const HomePage: React.FC<HomePageProps> = ({
             disabled={!canStartMatch}
             className={`mb-8 mt-4 px-6 py-3 rounded-lg text-xl font-bold transition duration-200 ${
               canStartMatch
-                ? "bg-green-600 hover:bg-green-700 text-white"
+                ? "bg-yellow-500 text-black hover:bg-yellow-400"
                 : "bg-gray-600 text-gray-300 cursor-not-allowed"
             }`}
           >
@@ -75,7 +75,7 @@ const HomePage: React.FC<HomePageProps> = ({
           </Link>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-          {ownedPokemons.map((pokemon) => (
+          {ownedPokemons.slice(0, 3).map((pokemon) => (
             <div
               key={pokemon.id}
               className="bg-gray-800 p-4 rounded-lg text-center shadow-md"

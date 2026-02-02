@@ -74,7 +74,12 @@ type State = {
   matchIndex: number; // 0..2
   turn: Side;
 
-  lastDamage?: { target: Side; amount: number; skillName: string };
+  lastDamage?: {
+    target: Side;
+    amount: number;
+    skillName: string;
+    crit?: boolean;
+  };
   dialogue: string;
 
   playerMatchWins: number;
@@ -82,12 +87,17 @@ type State = {
 
   lastEarned: number;
 
-  // ✅ Match done indicator
   toast: { text: string; id: number } | null;
-
-  // ✅ Option C command mode
   commandMode: CommandMode;
 };
+
+// -----------------------------
+// Pokémon-like pacing constants
+// -----------------------------
+const USED_MOVE_DELAY = 650; // pause after "used X"
+const DAMAGE_TEXT_DELAY = 900; // pause after "took dmg"
+const AI_THINK_DELAY = 1200; // AI thinking pause
+const INTRO_DELAY = 300; // match intro -> first turn
 
 function randInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -175,14 +185,16 @@ function getSkillsForPokemon(pokemonName: string): Skill[] {
 
 // -----------------------------
 // Convert OwnedPokemon -> ArenaPokemon
+// Pokémon-like defaults for Lv 1–15
 // -----------------------------
 function toArenaPokemon(p: OwnedPokemon, owner: "PLAYER" | "AI"): ArenaPokemon {
   const lvl = Number(p.level ?? 1);
 
-  const maxHp = Number(p?.stats?.hp ?? p?.hp ?? 60 + lvl * 8);
-  const attack = Number(p?.stats?.attack ?? p?.attack ?? 25 + lvl * 5);
-  const defense = Number(p?.stats?.defense ?? p?.defense ?? 20 + lvl * 4);
-  const speed = Number(p?.stats?.speed ?? p?.speed ?? 20 + lvl * 4);
+  // If you already have real stats stored, those will override these defaults.
+  const maxHp = Number(p?.stats?.hp ?? p?.hp ?? 110 + lvl * 16); // Lv1~126, Lv15~350
+  const attack = Number(p?.stats?.attack ?? p?.attack ?? 28 + lvl * 6);
+  const defense = Number(p?.stats?.defense ?? p?.defense ?? 24 + lvl * 5);
+  const speed = Number(p?.stats?.speed ?? p?.speed ?? 22 + lvl * 5);
 
   const id = `${owner === "PLAYER" ? "player" : "ai"}-${p.tokenId ?? p.id ?? p.name}`;
 
@@ -213,27 +225,44 @@ function toArenaPokemon(p: OwnedPokemon, owner: "PLAYER" | "AI"): ArenaPokemon {
 }
 
 // -----------------------------
-// Damage + AI
+// Damage + AI (Pokémon-like feel)
 // -----------------------------
 function computeDamage(
   attacker: ArenaPokemon,
   defender: ArenaPokemon,
   skill: Skill,
 ) {
-  const variance = randInt(0, 6);
-  const base =
-    attacker.attack + skill.power * 0.55 - defender.defense * 0.6 + variance;
-  return Math.max(1, Math.floor(base));
+  const power = Number(skill.power ?? 40);
+
+  // Ratio-based formula (feels closer to Pokémon than linear power scaling)
+  const levelFactor = 8 + attacker.level * 0.8; // Lv1~8.8, Lv15~20
+  const atk = Math.max(1, attacker.attack);
+  const def = Math.max(1, defender.defense);
+
+  // Main tuning knob: divisor controls overall battle length
+  const base = (levelFactor * power * (atk / def)) / 18;
+
+  // Small variance
+  const variance = randInt(-2, 2);
+
+  // Crit (≈ 6.25%)
+  const crit = Math.random() < 0.0625;
+
+  const dmg = Math.max(1, Math.floor(base + variance));
+  const finalDmg = crit ? Math.max(1, Math.floor(dmg * 1.5)) : dmg;
+
+  return { dmg: finalDmg, crit };
 }
 
 function pickAiSkill(ai: ArenaPokemon, player: ArenaPokemon) {
   const usable = ai.skills.filter((s) => (ai.pp?.[s.id] ?? 0) > 0);
   const pool = usable.length ? usable : ai.skills;
 
-  const scored = pool.map((s) => ({
-    s,
-    score: computeDamage(ai, player, s) + randInt(0, 5),
-  }));
+  // Score by expected damage + tiny randomness (since we no longer have huge damage spikes)
+  const scored = pool.map((s) => {
+    const { dmg } = computeDamage(ai, player, s);
+    return { s, score: dmg + randInt(0, 3) };
+  });
   scored.sort((a, b) => b.score - a.score);
   return scored[0]?.s ?? pool[0];
 }
@@ -350,6 +379,12 @@ function Platform({ size = "md" }: { size?: "sm" | "md" }) {
 const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
   const [state, setState] = React.useState<State>(() => initialState());
 
+  // ✅ Prevent double-resolve (double clicks / race)
+  const actionLockRef = React.useRef(false);
+
+  // ✅ Prevent double tournament payout
+  const tournamentEndRef = React.useRef(false);
+
   const ownedWithStableId = React.useMemo(() => {
     return ownedPokemons.map((p) => ({
       ...p,
@@ -400,17 +435,20 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
         image: "",
         level: 1,
         rarity: "Common",
-        stats: { hp: 80, attack: 30, defense: 20, speed: 20 },
+        stats: { hp: 120, attack: 34, defense: 29, speed: 27 },
       });
     }
     return aiPick;
   }
 
   function startBattle() {
+    // reset guards for a fresh tournament
+    actionLockRef.current = false;
+    tournamentEndRef.current = false;
+
     const chosen = ownedWithStableId
       .filter((p) => state.selectedIds.has(p._sid))
       .slice(0, 3);
-
     const playerTeam = chosen.map((p) => toArenaPokemon(p, "PLAYER"));
 
     const aiRaw = buildAiTeamFromRoster();
@@ -449,14 +487,19 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
       if (turn === "player")
         setDialogue(`What will ${playerTeam[0]?.name ?? "your Pokémon"} do?`);
       else setDialogue(`Enemy ${aiTeam[0]?.name ?? "Pokémon"} is thinking…`);
-    }, 250);
+    }, INTRO_DELAY);
   }
 
   function resetBattle() {
+    actionLockRef.current = false;
+    tournamentEndRef.current = false;
     setState(initialState());
   }
 
   function endTournament(playerWins: number, aiWins: number) {
+    if (tournamentEndRef.current) return;
+    tournamentEndRef.current = true;
+
     const draws = 3 - (playerWins + aiWins);
     const baseEarned = playerWins * 5 + draws * 2;
     const championBonus = playerWins > aiWins ? 20 : 0;
@@ -484,6 +527,8 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
           ? "Tournament Lost"
           : "Tournament Draw",
     );
+
+    actionLockRef.current = false;
   }
 
   function nextMatchOrEnd() {
@@ -521,11 +566,15 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
             : `Enemy ${en?.name ?? "Pokémon"} is thinking…`;
         return { ...p, dialogue: text, commandMode: "root" };
       });
-    }, 350);
+
+      actionLockRef.current = false;
+    }, INTRO_DELAY + 100);
   }
 
   function resolveAttack(attackerSide: Side, skill: Skill) {
-    // Lock UI to root during resolving
+    if (actionLockRef.current) return;
+    actionLockRef.current = true;
+
     setState((p) => ({ ...p, commandMode: "root" }));
 
     setState((prev) => {
@@ -546,6 +595,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
 
       const attackerLabel =
         attackerSide === "player" ? attacker.name : `Enemy ${attacker.name}`;
+
       return {
         ...prev,
         phase: "resolving",
@@ -571,10 +621,14 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
         const hit = Math.random() <= clamp(chosen.accuracy ?? 1, 0, 1);
 
         let dmg = 0;
+        let crit = false;
         let newDefender = defender;
 
         if (hit) {
-          dmg = computeDamage(attacker, defender, chosen);
+          const out = computeDamage(attacker, defender, chosen);
+          dmg = out.dmg;
+          crit = out.crit;
+
           const nextHp = Math.max(0, defender.hp - dmg);
           newDefender = { ...defender, hp: nextHp, fainted: nextHp <= 0 };
         }
@@ -596,15 +650,16 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
 
         const target: Side = attackerSide === "player" ? "ai" : "player";
 
-        const followText = hit
+        let followText = hit
           ? `${newDefender.name} took ${dmg} damage!`
           : "But it missed!";
+        if (hit && crit) followText = `${followText} A critical hit!`;
 
         return {
           ...prev,
           playerTeam,
           aiTeam,
-          lastDamage: { target, amount: dmg, skillName: chosen.name },
+          lastDamage: { target, amount: dmg, skillName: chosen.name, crit },
           dialogue: followText,
           phase: "resolving",
         };
@@ -645,10 +700,10 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
               dialogueText = `Match ${matchNo} ended in a draw!`;
             } else if (winner === "player") {
               toastText = `Match ${matchNo} Won!`;
-              dialogueText = `You won Match ${matchNo}!`;
+              dialogueText = `${en.name} fainted! You won Match ${matchNo}!`;
             } else {
               toastText = `Match ${matchNo} Lost`;
-              dialogueText = `You lost Match ${matchNo}…`;
+              dialogueText = `${pl.name} fainted! You lost Match ${matchNo}…`;
             }
 
             showToast(toastText);
@@ -662,15 +717,17 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
               commandMode: "root",
             };
 
+            actionLockRef.current = false;
+
             if (mi >= 2) {
               window.setTimeout(
                 () => endTournament(playerMatchWins, aiMatchWins),
-                500,
+                650,
               );
               return updated;
             }
 
-            window.setTimeout(() => nextMatchOrEnd(), 650);
+            window.setTimeout(() => nextMatchOrEnd(), 850);
             return updated;
           }
 
@@ -680,6 +737,8 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
               ? `What will ${pl.name} do?`
               : `Enemy ${en.name} is thinking…`;
 
+          actionLockRef.current = false;
+
           return {
             ...prev,
             phase: nextTurn === "player" ? "player_turn" : "ai_turn",
@@ -688,8 +747,8 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
             commandMode: "root",
           };
         });
-      }, 550);
-    }, 420);
+      }, DAMAGE_TEXT_DELAY);
+    }, USED_MOVE_DELAY);
   }
 
   // Auto-play AI turn
@@ -701,19 +760,20 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
     if (!ai || !player) return;
 
     const chosen = pickAiSkill(ai, player);
-    const t = window.setTimeout(() => resolveAttack("ai", chosen), 700);
+    const t = window.setTimeout(
+      () => resolveAttack("ai", chosen),
+      AI_THINK_DELAY,
+    );
     return () => window.clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.phase, state.matchIndex]);
 
   function playerUseSkill(skill: Skill) {
     if (state.phase !== "player_turn") return;
+    if (actionLockRef.current) return;
     resolveAttack("player", skill);
   }
 
-  // -----------------------------
-  // Option C command actions
-  // -----------------------------
   const isBattleLocked =
     state.phase === "ai_turn" ||
     state.phase === "resolving" ||
@@ -749,7 +809,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 p-4 text-white">
-      {/* tiny CSS for idle float */}
       <style>{`
         @keyframes floaty { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-6px); } }
         .floaty { animation: floaty 2.2s ease-in-out infinite; }
@@ -774,13 +833,20 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
 
         <div className="flex gap-2">
           {state.phase !== "lineup" ? (
-            <Button variant="outline" onClick={resetBattle}>
+            <Button
+              className="bg-yellow-500 text-black hover:bg-yellow-400"
+              onClick={resetBattle}
+            >
               Back to Lineup
             </Button>
           ) : null}
 
           {state.phase === "lineup" ? (
-            <Button onClick={startBattle} disabled={!canStart}>
+            <Button
+              className="bg-yellow-500 text-black hover:bg-yellow-400"
+              onClick={startBattle}
+              disabled={!canStart}
+            >
               Start Battle
             </Button>
           ) : null}
@@ -792,7 +858,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
         <Card className="rounded-3xl bg-gray-900 border-gray-800">
           <CardContent className="p-4">
             <div className="mb-3 flex items-center justify-between">
-              <div className="text-sm font-semibold">
+              <div className="text-sm font-semibold text-gray-400">
                 Choose 3 Pokémon{" "}
                 <span className="text-xs text-gray-400">
                   ({state.selectedIds.size}/3)
@@ -829,7 +895,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                         ) : null}
                       </div>
                       <div className="min-w-0">
-                        <div className="truncate text-sm font-semibold">
+                        <div className="truncate text-sm font-semibold text-white">
                           {bp.name}
                         </div>
                         <div className="text-xs text-gray-400">
@@ -966,7 +1032,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                     <span className="font-extrabold text-yellow-300">
                       {state.lastDamage.amount}
                     </span>{" "}
-                    DMG!
+                    DMG{state.lastDamage.crit ? "!" : "!"}
                   </div>
                 </div>
               ) : null}
@@ -981,7 +1047,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                 <div className="w-[340px] sm:w-[420px]">
                   <div className="rounded-[18px] border-4 border-neutral-200/70 bg-neutral-950/70 shadow-[0_14px_40px_rgba(0,0,0,0.55)]">
                     <div className="rounded-[12px] border border-white/10 bg-neutral-900/60 p-3 backdrop-blur">
-                      {/* Header line */}
                       <div className="mb-2 flex items-center justify-between text-[11px] text-white/70">
                         <span>
                           Match {state.matchIndex + 1}/3 • You{" "}
@@ -1157,9 +1222,8 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                 </div>
               </div>
 
-              {/* small top status */}
               <div className="absolute top-4 left-4 text-[11px] text-white/65">
-                PvE • Turn-based • No MetaMask popups
+                PvE • Turn-based
               </div>
             </div>
           </div>
