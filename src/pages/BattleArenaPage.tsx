@@ -94,10 +94,15 @@ type State = {
 // -----------------------------
 // Pokémon-like pacing constants
 // -----------------------------
-const USED_MOVE_DELAY = 650; // pause after "used X"
-const DAMAGE_TEXT_DELAY = 900; // pause after "took dmg"
-const AI_THINK_DELAY = 1200; // AI thinking pause
-const INTRO_DELAY = 300; // match intro -> first turn
+const USED_MOVE_DELAY = 650;
+const DAMAGE_TEXT_DELAY = 900;
+const AI_THINK_DELAY = 1200;
+const INTRO_DELAY = 300;
+
+// -----------------------------
+// Lineup pagination
+// -----------------------------
+const LINEUP_PAGE_SIZE = 9;
 
 function randInt(min: number, max: number) {
   return Math.floor(Math.random() * (max - min + 1)) + min;
@@ -190,8 +195,7 @@ function getSkillsForPokemon(pokemonName: string): Skill[] {
 function toArenaPokemon(p: OwnedPokemon, owner: "PLAYER" | "AI"): ArenaPokemon {
   const lvl = Number(p.level ?? 1);
 
-  // If you already have real stats stored, those will override these defaults.
-  const maxHp = Number(p?.stats?.hp ?? p?.hp ?? 110 + lvl * 16); // Lv1~126, Lv15~350
+  const maxHp = Number(p?.stats?.hp ?? p?.hp ?? 110 + lvl * 16);
   const attack = Number(p?.stats?.attack ?? p?.attack ?? 28 + lvl * 6);
   const defense = Number(p?.stats?.defense ?? p?.defense ?? 24 + lvl * 5);
   const speed = Number(p?.stats?.speed ?? p?.speed ?? 22 + lvl * 5);
@@ -234,20 +238,14 @@ function computeDamage(
 ) {
   const power = Number(skill.power ?? 40);
 
-  // Ratio-based formula (feels closer to Pokémon than linear power scaling)
   const levelFactor = 8 + attacker.level * 0.8; // Lv1~8.8, Lv15~20
   const atk = Math.max(1, attacker.attack);
   const def = Math.max(1, defender.defense);
 
-  // Main tuning knob: divisor controls overall battle length
   const base = (levelFactor * power * (atk / def)) / 18;
-
-  // Small variance
   const variance = randInt(-2, 2);
 
-  // Crit (≈ 6.25%)
   const crit = Math.random() < 0.0625;
-
   const dmg = Math.max(1, Math.floor(base + variance));
   const finalDmg = crit ? Math.max(1, Math.floor(dmg * 1.5)) : dmg;
 
@@ -258,7 +256,6 @@ function pickAiSkill(ai: ArenaPokemon, player: ArenaPokemon) {
   const usable = ai.skills.filter((s) => (ai.pp?.[s.id] ?? 0) > 0);
   const pool = usable.length ? usable : ai.skills;
 
-  // Score by expected damage + tiny randomness (since we no longer have huge damage spikes)
   const scored = pool.map((s) => {
     const { dmg } = computeDamage(ai, player, s);
     return { s, score: dmg + randInt(0, 3) };
@@ -385,12 +382,29 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
   // ✅ Prevent double tournament payout
   const tournamentEndRef = React.useRef(false);
 
+  // ✅ Pagination state for lineup
+  const [lineupPage, setLineupPage] = React.useState(0);
+
   const ownedWithStableId = React.useMemo(() => {
     return ownedPokemons.map((p) => ({
       ...p,
       _sid: `owned-${p.tokenId ?? p.id ?? p.name}`,
     }));
   }, [ownedPokemons]);
+
+  const totalLineupPages = React.useMemo(() => {
+    return Math.max(1, Math.ceil(ownedWithStableId.length / LINEUP_PAGE_SIZE));
+  }, [ownedWithStableId.length]);
+
+  // Keep page in-range when ownedPokemons changes
+  React.useEffect(() => {
+    setLineupPage((p) => clamp(p, 0, totalLineupPages - 1));
+  }, [totalLineupPages]);
+
+  const lineupSlice = React.useMemo(() => {
+    const start = lineupPage * LINEUP_PAGE_SIZE;
+    return ownedWithStableId.slice(start, start + LINEUP_PAGE_SIZE);
+  }, [ownedWithStableId, lineupPage]);
 
   const canStart = state.selectedIds.size === 3;
 
@@ -442,7 +456,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
   }
 
   function startBattle() {
-    // reset guards for a fresh tournament
     actionLockRef.current = false;
     tournamentEndRef.current = false;
 
@@ -787,7 +800,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
       return;
     }
     setState((p) => ({ ...p, commandMode: "fight" }));
-    setDialogue(`Choose a move.`);
+    setDialogue("Choose a move.");
   }
 
   function backToRoot() {
@@ -809,6 +822,7 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
 
   return (
     <div className="mx-auto w-full max-w-6xl space-y-6 p-4 text-white">
+      {/* tiny CSS for idle float */}
       <style>{`
         @keyframes floaty { 0%,100% { transform: translateY(0px); } 50% { transform: translateY(-6px); } }
         .floaty { animation: floaty 2.2s ease-in-out infinite; }
@@ -857,20 +871,69 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
       {state.phase === "lineup" ? (
         <Card className="rounded-3xl bg-gray-900 border-gray-800">
           <CardContent className="p-4">
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
               <div className="text-sm font-semibold text-gray-400">
                 Choose 3 Pokémon{" "}
                 <span className="text-xs text-gray-400">
                   ({state.selectedIds.size}/3)
                 </span>
               </div>
-              <div className="text-xs text-gray-400">
-                Click cards to select your lineup.
+
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="text-xs text-gray-400">
+                  Page{" "}
+                  <span className="text-gray-200 font-semibold">
+                    {lineupPage + 1}
+                  </span>{" "}
+                  /{" "}
+                  <span className="text-gray-200 font-semibold">
+                    {totalLineupPages}
+                  </span>
+                  <span className="ml-2 text-white/40">•</span>
+                  <span className="ml-2">
+                    Showing{" "}
+                    <span className="text-gray-200 font-semibold">
+                      {lineupSlice.length}
+                    </span>{" "}
+                    of{" "}
+                    <span className="text-gray-200 font-semibold">
+                      {ownedWithStableId.length}
+                    </span>
+                  </span>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  <Button
+                    variant="secondary"
+                    className="h-8 px-3"
+                    onClick={() => setLineupPage((p) => Math.max(0, p - 1))}
+                    disabled={lineupPage <= 0}
+                  >
+                    ← Prev
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    className="h-8 px-3"
+                    onClick={() =>
+                      setLineupPage((p) =>
+                        Math.min(totalLineupPages - 1, p + 1),
+                      )
+                    }
+                    disabled={lineupPage >= totalLineupPages - 1}
+                  >
+                    Next →
+                  </Button>
+                </div>
               </div>
             </div>
 
+            <div className="mb-2 text-xs text-gray-400">
+              Click cards to select your lineup. (Selections persist across
+              pages.)
+            </div>
+
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-              {ownedWithStableId.map((p) => {
+              {lineupSlice.map((p) => {
                 const selected = state.selectedIds.has(p._sid);
                 const bp = toArenaPokemon(p, "PLAYER");
                 return (
@@ -952,7 +1015,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
             />
 
             <div className="relative p-4 sm:p-6 min-h-[640px]">
-              {/* Match done indicator */}
               {state.toast ? (
                 <div className="absolute left-1/2 top-6 -translate-x-1/2 z-20 pointer-events-none">
                   <div className="rounded-full border border-white/20 bg-black/65 px-5 py-2 text-sm font-extrabold tracking-wide shadow-[0_14px_40px_rgba(0,0,0,0.6)]">
@@ -1037,12 +1099,12 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                 </div>
               ) : null}
 
-              {/* Floating dialogue (single only) */}
+              {/* Floating dialogue */}
               <div className="absolute bottom-6 left-4 sm:left-6 max-w-[620px]">
                 <BattleDialogue text={state.dialogue} />
               </div>
 
-              {/* ✅ Option C Command Panel (compact, bottom-right) */}
+              {/* ✅ Option C Command Panel */}
               <div className="absolute bottom-6 right-4 sm:right-6">
                 <div className="w-[340px] sm:w-[420px]">
                   <div className="rounded-[18px] border-4 border-neutral-200/70 bg-neutral-950/70 shadow-[0_14px_40px_rgba(0,0,0,0.55)]">
@@ -1071,7 +1133,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                         )}
                       </div>
 
-                      {/* Root menu */}
                       {state.commandMode === "root" ? (
                         <div className="grid grid-cols-2 gap-2">
                           <button
@@ -1150,7 +1211,6 @@ const BattleArenaPage: React.FC<Props> = ({ ownedPokemons, onEarnLeelas }) => {
                         </div>
                       ) : null}
 
-                      {/* Fight submenu */}
                       {state.commandMode === "fight" ? (
                         <div>
                           <div className="mb-2 flex items-center justify-between">
